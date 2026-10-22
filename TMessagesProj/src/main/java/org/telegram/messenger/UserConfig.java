@@ -374,7 +374,16 @@ public class UserConfig extends BaseController {
                     clientUserId = currentUser.id;
                 }
                 if (android.text.TextUtils.isEmpty(currentUser.first_name)) {
-                    currentUser.first_name = !android.text.TextUtils.isEmpty(displayName) ? displayName : matrixUserId;
+                    String name = !android.text.TextUtils.isEmpty(displayName) ? displayName : matrixUserId;
+                    int sp = name.indexOf(' ');
+                    if (sp > 0) {
+                        currentUser.first_name = name.substring(0, sp).trim();
+                        currentUser.last_name = name.substring(sp + 1).trim();
+                        currentUser.flags |= 4;
+                    } else {
+                        currentUser.first_name = name;
+                        currentUser.last_name = "";
+                    }
                 }
                 if (android.text.TextUtils.isEmpty(currentUser.username)) {
                     currentUser.username = matrixUserId.replaceFirst("^@", "").replace(':', '_');

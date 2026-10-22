@@ -176,7 +176,16 @@ public class MatrixLoginView extends SlideView {
                 // 3. Create TLRPC User
                 TLRPC.TL_user currentUser = new TLRPC.TL_user();
                 currentUser.id = numericUserId;
-                currentUser.first_name = !TextUtils.isEmpty(result.displayName) ? result.displayName : result.userId;
+                String name = !TextUtils.isEmpty(result.displayName) ? result.displayName : result.userId;
+                int sp = name.indexOf(' ');
+                if (sp > 0) {
+                    currentUser.first_name = name.substring(0, sp).trim();
+                    currentUser.last_name = name.substring(sp + 1).trim();
+                    currentUser.flags |= 4;
+                } else {
+                    currentUser.first_name = name;
+                    currentUser.last_name = "";
+                }
                 currentUser.username = result.userId.replaceFirst("^@", "").replace(':', '_');
                 currentUser.phone = result.userId;
                 currentUser.self = true;

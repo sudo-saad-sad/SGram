@@ -50,6 +50,10 @@ public class MatrixIdMapper {
         this.prefs = ApplicationLoader.applicationContext.getSharedPreferences(PREF_PREFIX + account, Context.MODE_PRIVATE);
     }
 
+    public SharedPreferences getPrefs() {
+        return prefs;
+    }
+
     // ---------------- User ID Mappings ----------------
 
     public synchronized long getNumericUserId(String matrixUserId) {
@@ -185,6 +189,41 @@ public class MatrixIdMapper {
             return val;
         }
         return null;
+    }
+
+    public synchronized void setUserNameAndAvatar(long numericUserId, String displayName, String avatarUrl) {
+        if (numericUserId <= 0) return;
+        SharedPreferences.Editor edit = prefs.edit();
+        if (displayName != null) {
+            edit.putString("dn_" + numericUserId, displayName);
+        }
+        if (avatarUrl != null) {
+            edit.putString("av_" + numericUserId, avatarUrl);
+        }
+        edit.apply();
+    }
+
+    public synchronized String getUserDisplayName(long numericUserId) {
+        return prefs.getString("dn_" + numericUserId, null);
+    }
+
+    public synchronized String getUserAvatarUrl(long numericUserId) {
+        return prefs.getString("av_" + numericUserId, null);
+    }
+
+    public synchronized java.util.List<Long> getAllDirectUserIds() {
+        java.util.List<Long> list = new java.util.ArrayList<>();
+        for (String key : prefs.getAll().keySet()) {
+            if (key.startsWith("dm_u_")) {
+                try {
+                    long uid = Long.parseLong(key.substring(5));
+                    if (uid > 0 && !list.contains(uid)) {
+                        list.add(uid);
+                    }
+                } catch (Exception ignore) {}
+            }
+        }
+        return list;
     }
 
     // ---------------- Event ID Mappings ----------------
