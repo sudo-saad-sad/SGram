@@ -16,6 +16,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 public class MatrixClient {
 
@@ -1900,38 +1901,6 @@ public class MatrixClient {
                     postSuccess(callback, json.optString("event_id", null));
                 } else {
                     postError(callback, statusCode, "Send poll vote failed: " + statusCode);
-                }
-            } catch (Exception e) {
-                postError(callback, -1, e.getMessage());
-            }
-        });
-    }
-
-    // ---------------- User Profile ----------------
-
-    public void getUserProfile(String homeserver, String accessToken, String userId, MatrixCallback<JSONObject> callback) {
-        Utilities.globalQueue.postRunnable(() -> {
-            try {
-                String encodedUser = URLEncoder.encode(userId, "UTF-8");
-                URL url = new URL(homeserver + "/_matrix/client/v3/profile/" + encodedUser);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("GET");
-                conn.setConnectTimeout(15000);
-                conn.setReadTimeout(15000);
-                if (!TextUtils.isEmpty(accessToken)) {
-                    conn.setRequestProperty("Authorization", "Bearer " + accessToken);
-                }
-                conn.setRequestProperty("Accept", "application/json");
-
-                int statusCode = conn.getResponseCode();
-                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
-                String responseStr = readStream(is);
-
-                if (statusCode >= 200 && statusCode < 300) {
-                    JSONObject json = new JSONObject(responseStr);
-                    postSuccess(callback, json);
-                } else {
-                    postError(callback, statusCode, "Get profile failed: " + statusCode);
                 }
             } catch (Exception e) {
                 postError(callback, -1, e.getMessage());

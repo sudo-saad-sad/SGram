@@ -2644,7 +2644,7 @@ public class MatrixController {
         String question = pollMedia.poll.question != null ? pollMedia.poll.question.text : "";
         List<String> options = new ArrayList<>();
         if (pollMedia.poll.answers != null) {
-            for (TLRPC.TL_pollAnswer a : pollMedia.poll.answers) {
+            for (TLRPC.PollAnswer a : pollMedia.poll.answers) {
                 if (a != null && a.text != null) {
                     options.add(a.text.text);
                 }
