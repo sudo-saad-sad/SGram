@@ -1705,6 +1705,240 @@ public class MatrixClient {
         });
     }
 
+    // ---------------- Devices & Sessions Management ----------------
+
+    public void getDevices(String homeserver, String accessToken, MatrixCallback<JSONArray> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                URL url = new URL(homeserver + "/_matrix/client/v3/devices");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Accept", "application/json");
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    JSONArray devices = json.optJSONArray("devices");
+                    postSuccess(callback, devices != null ? devices : new JSONArray());
+                } else {
+                    postError(callback, statusCode, "Get devices failed: " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void deleteDevice(String homeserver, String accessToken, String deviceId, MatrixCallback<Boolean> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedDevice = URLEncoder.encode(deviceId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/devices/" + encodedDevice);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("DELETE");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Accept", "application/json");
+
+                int statusCode = conn.getResponseCode();
+                postSuccess(callback, statusCode >= 200 && statusCode < 300);
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    // ---------------- Read Markers ----------------
+
+    public void setReadMarkers(String homeserver, String accessToken, String roomId, String fullyReadEventId, String readEventId, MatrixCallback<Boolean> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedRoom = URLEncoder.encode(roomId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/rooms/" + encodedRoom + "/read_markers");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                if (!TextUtils.isEmpty(fullyReadEventId)) {
+                    body.put("m.fully_read", fullyReadEventId);
+                }
+                if (!TextUtils.isEmpty(readEventId)) {
+                    body.put("m.read", readEventId);
+                }
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                postSuccess(callback, statusCode >= 200 && statusCode < 300);
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    // ---------------- Polls (MSC3381) ----------------
+
+    public void sendPoll(String homeserver, String accessToken, String roomId, String question, List<String> options, boolean multipleChoice, String txnId, MatrixCallback<String> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedRoom = URLEncoder.encode(roomId, "UTF-8");
+                String encodedTxn = URLEncoder.encode(txnId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/rooms/" + encodedRoom + "/send/org.matrix.msc3381.poll.start/" + encodedTxn);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("PUT");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                StringBuilder fallback = new StringBuilder(question).append("\n");
+                JSONArray answersArr = new JSONArray();
+                for (int i = 0; i < options.size(); i++) {
+                    String opt = options.get(i);
+                    fallback.append(i + 1).append(". ").append(opt).append("\n");
+                    JSONObject ansObj = new JSONObject();
+                    ansObj.put("id", "ans_" + i);
+                    JSONObject ansText = new JSONObject();
+                    ansText.put("org.matrix.msc1767.text", opt);
+                    ansObj.put("org.matrix.msc1767.text", opt);
+                    answersArr.put(ansObj);
+                }
+                body.put("org.matrix.msc1767.text", fallback.toString());
+
+                JSONObject pollStart = new JSONObject();
+                JSONObject qObj = new JSONObject();
+                qObj.put("org.matrix.msc1767.text", question);
+                pollStart.put("question", qObj);
+                pollStart.put("kind", "org.matrix.msc3381.poll.disclosed");
+                pollStart.put("max_selections", multipleChoice ? options.size() : 1);
+                pollStart.put("answers", answersArr);
+
+                body.put("org.matrix.msc3381.poll.start", pollStart);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    postSuccess(callback, json.optString("event_id", null));
+                } else {
+                    postError(callback, statusCode, "Send poll failed: " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void sendPollVote(String homeserver, String accessToken, String roomId, String pollEventId, List<String> answerIds, String txnId, MatrixCallback<String> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedRoom = URLEncoder.encode(roomId, "UTF-8");
+                String encodedTxn = URLEncoder.encode(txnId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/rooms/" + encodedRoom + "/send/org.matrix.msc3381.poll.response/" + encodedTxn);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("PUT");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                JSONObject relatesTo = new JSONObject();
+                relatesTo.put("rel_type", "m.reference");
+                relatesTo.put("event_id", pollEventId);
+                body.put("m.relates_to", relatesTo);
+
+                JSONObject respObj = new JSONObject();
+                JSONArray ansArr = new JSONArray();
+                if (answerIds != null) {
+                    for (String a : answerIds) {
+                        ansArr.put(a);
+                    }
+                }
+                respObj.put("answers", ansArr);
+                body.put("org.matrix.msc3381.poll.response", respObj);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    postSuccess(callback, json.optString("event_id", null));
+                } else {
+                    postError(callback, statusCode, "Send poll vote failed: " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    // ---------------- User Profile ----------------
+
+    public void getUserProfile(String homeserver, String accessToken, String userId, MatrixCallback<JSONObject> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedUser = URLEncoder.encode(userId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/profile/" + encodedUser);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                if (!TextUtils.isEmpty(accessToken)) {
+                    conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                }
+                conn.setRequestProperty("Accept", "application/json");
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    postSuccess(callback, json);
+                } else {
+                    postError(callback, statusCode, "Get profile failed: " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
     // ---------------- Helper Methods ----------------
 
     private String readStream(InputStream is) throws Exception {

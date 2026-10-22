@@ -21,6 +21,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.RandomAccessFile;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -39,6 +40,7 @@ public class MatrixController {
     private final ConcurrentHashMap<String, String> roomPrevBatchMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, TreeMap<Integer, byte[]>> filePartBuffers = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, String> mediaIdToUrlMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, String> deviceHashToIdMap = new ConcurrentHashMap<>();
 
     public static MatrixController getInstance(int account) {
         if (account < 0 || account >= instances.length) {
@@ -523,8 +525,8 @@ public class MatrixController {
                                 continue;
                             }
 
-                            // Support both m.room.message and m.room.encrypted
-                            if (!"m.room.message".equals(type) && !"m.room.encrypted".equals(type)) {
+                            // Support m.room.message, m.room.encrypted, and polls
+                            if (!"m.room.message".equals(type) && !"m.room.encrypted".equals(type) && !"org.matrix.msc3381.poll.start".equals(type) && !"m.poll.start".equals(type)) {
                                 continue;
                             }
 
@@ -841,6 +843,28 @@ public class MatrixController {
                 onComplete.run(rules, null);
             }
             return true;
+        } else if (object instanceof TLRPC.TL_account_getAuthorizations) {
+            handleGetAuthorizations((TLRPC.TL_account_getAuthorizations) object, onComplete);
+            return true;
+        } else if (object instanceof TLRPC.TL_account_resetAuthorization) {
+            handleResetAuthorization((TLRPC.TL_account_resetAuthorization) object, onComplete);
+            return true;
+        } else if (object instanceof TLRPC.TL_auth_resetAuthorizations) {
+            handleResetAllAuthorizations((TLRPC.TL_auth_resetAuthorizations) object, onComplete);
+            return true;
+        } else if (object instanceof TLRPC.TL_messages_sendVote) {
+            handleSendVote((TLRPC.TL_messages_sendVote) object, onComplete);
+            return true;
+        } else if (object instanceof TLRPC.TL_messages_saveDraft) {
+            if (onComplete != null) {
+                onComplete.run(new TLRPC.TL_boolTrue(), null);
+            }
+            return true;
+        } else if (object instanceof TLRPC.TL_messages_getAllDrafts) {
+            if (onComplete != null) {
+                onComplete.run(new TLRPC.TL_updates(), null);
+            }
+            return true;
         }
 
         return false;
@@ -1003,6 +1027,11 @@ public class MatrixController {
                     }
                 }
             });
+            return;
+        }
+
+        if (req.media instanceof TLRPC.TL_inputMediaPoll) {
+            handleSendPoll(matrixRoomId, (TLRPC.TL_inputMediaPoll) req.media, onComplete);
             return;
         }
 
@@ -1226,6 +1255,7 @@ public class MatrixController {
                 String homeserver = MatrixConfig.getHomeserver(currentAccount);
                 String accessToken = MatrixConfig.getAccessToken(currentAccount);
                 MatrixClient.getInstance().sendReadReceipt(homeserver, accessToken, matrixRoomId, eventId, null);
+                MatrixClient.getInstance().setReadMarkers(homeserver, accessToken, matrixRoomId, eventId, eventId, null);
             }
         }
 
@@ -2202,7 +2232,7 @@ public class MatrixController {
             return null;
         }
         String type = ev.optString("type");
-        if (!"m.room.message".equals(type) && !"m.room.encrypted".equals(type)) {
+        if (!"m.room.message".equals(type) && !"m.room.encrypted".equals(type) && !"org.matrix.msc3381.poll.start".equals(type) && !"m.poll.start".equals(type)) {
             return null;
         }
         JSONObject content = ev.optJSONObject("content");
@@ -2215,6 +2245,82 @@ public class MatrixController {
         int msgId = idMapper.getNumericMessageId(roomId, eventId);
         long senderNumericId = idMapper.getNumericUserId(senderId);
         boolean isOut = senderId != null && senderId.equals(myMatrixId);
+
+        // Handle Polls (MSC3381 / org.matrix.msc3381.poll.start & m.poll.start)
+        if ("org.matrix.msc3381.poll.start".equals(type) || "m.poll.start".equals(type)) {
+            JSONObject pollStart = content.optJSONObject("org.matrix.msc3381.poll.start");
+            if (pollStart == null) {
+                pollStart = content.optJSONObject("m.poll.start");
+            }
+            String question = "";
+            if (pollStart != null) {
+                JSONObject qObj = pollStart.optJSONObject("question");
+                if (qObj != null) {
+                    question = qObj.optString("org.matrix.msc1767.text", "");
+                }
+            }
+            if (TextUtils.isEmpty(question)) {
+                question = content.optString("org.matrix.msc1767.text", "Poll");
+            }
+
+            TLRPC.TL_messageMediaPoll mediaPoll = new TLRPC.TL_messageMediaPoll();
+            mediaPoll.poll = new TLRPC.TL_poll();
+            mediaPoll.poll.id = Math.abs((long) eventId.hashCode());
+            mediaPoll.poll.question = new TLRPC.TL_textWithEntities();
+            mediaPoll.poll.question.text = question;
+            mediaPoll.poll.flags = 0;
+            if (pollStart != null && pollStart.optInt("max_selections", 1) > 1) {
+                mediaPoll.poll.multiple_choice = true;
+                mediaPoll.poll.flags |= 4;
+            }
+
+            mediaPoll.results = new TLRPC.TL_pollResults();
+            mediaPoll.results.flags = 0;
+
+            if (pollStart != null) {
+                JSONArray answers = pollStart.optJSONArray("answers");
+                if (answers != null) {
+                    for (int i = 0; i < answers.length(); i++) {
+                        JSONObject a = answers.optJSONObject(i);
+                        if (a != null) {
+                            String aId = a.optString("id", "ans_" + i);
+                            String aText = a.optString("org.matrix.msc1767.text", "Option " + (i + 1));
+
+                            TLRPC.TL_pollAnswer answer = new TLRPC.TL_pollAnswer();
+                            answer.text = new TLRPC.TL_textWithEntities();
+                            answer.text.text = aText;
+                            answer.option = aId.getBytes(StandardCharsets.UTF_8);
+                            mediaPoll.poll.answers.add(answer);
+
+                            TLRPC.TL_pollAnswerVoters voter = new TLRPC.TL_pollAnswerVoters();
+                            voter.option = answer.option;
+                            voter.voters = 0;
+                            mediaPoll.results.results.add(voter);
+                        }
+                    }
+                }
+            }
+
+            TLRPC.TL_message msg = new TLRPC.TL_message();
+            msg.id = msgId;
+            msg.date = (int) (originServerTs / 1000);
+            msg.message = question;
+            msg.media = mediaPoll;
+            msg.flags = TLRPC.MESSAGE_FLAG_HAS_FROM_ID | TLRPC.MESSAGE_FLAG_HAS_MEDIA;
+
+            TLRPC.TL_peerUser fromPeer = new TLRPC.TL_peerUser();
+            fromPeer.user_id = senderNumericId;
+            msg.from_id = fromPeer;
+            msg.peer_id = dialogPeer;
+            msg.dialog_id = peerDialogId;
+
+            if (isOut) {
+                msg.out = true;
+                msg.flags |= 2;
+            }
+            msg.send_state = 0;
+            return msg;
+        }
 
         // Handle Encrypted Matrix Message (m.room.encrypted)
         if ("m.room.encrypted".equals(type)) {
@@ -2431,5 +2537,190 @@ public class MatrixController {
 
     private TLRPC.TL_chat createTLChat(long chatId, String title, String topic, int memberCount) {
         return createTLChat(chatId, title, topic, memberCount, null);
+    }
+
+    // ---------------- Devices & Active Sessions ----------------
+
+    private void handleGetAuthorizations(TLRPC.TL_account_getAuthorizations req, RequestDelegate onComplete) {
+        String homeserver = MatrixConfig.getHomeserver(currentAccount);
+        String accessToken = MatrixConfig.getAccessToken(currentAccount);
+        String currentDeviceId = MatrixConfig.getDeviceId(currentAccount);
+
+        MatrixClient.getInstance().getDevices(homeserver, accessToken, new MatrixClient.MatrixCallback<JSONArray>() {
+            @Override
+            public void onSuccess(JSONArray devices) {
+                TLRPC.TL_account_authorizations res = new TLRPC.TL_account_authorizations();
+                res.authorization_ttl_days = 365;
+
+                if (devices != null) {
+                    for (int i = 0; i < devices.length(); i++) {
+                        JSONObject dev = devices.optJSONObject(i);
+                        if (dev == null) continue;
+
+                        String devId = dev.optString("device_id", "");
+                        String dispName = dev.optString("display_name", "");
+                        String ip = dev.optString("last_seen_ip", "");
+                        long lastSeenTs = dev.optLong("last_seen_ts", System.currentTimeMillis());
+
+                        long hash = Math.abs((long) devId.hashCode());
+                        deviceHashToIdMap.put(hash, devId);
+
+                        TLRPC.TL_authorization auth = new TLRPC.TL_authorization();
+                        auth.hash = hash;
+                        auth.device_model = !TextUtils.isEmpty(dispName) ? dispName : "Matrix Session";
+                        auth.platform = "Matrix";
+                        auth.system_version = devId;
+                        auth.app_name = "SGram";
+                        auth.app_version = "v0.3.1";
+                        auth.ip = ip;
+                        auth.date_active = (int) (lastSeenTs / 1000);
+                        auth.current = devId.equals(currentDeviceId);
+
+                        res.authorizations.add(auth);
+                    }
+                }
+
+                if (onComplete != null) {
+                    onComplete.run(res, null);
+                }
+            }
+
+            @Override
+            public void onError(int code, String message) {
+                if (onComplete != null) {
+                    TLRPC.TL_account_authorizations res = new TLRPC.TL_account_authorizations();
+                    onComplete.run(res, null);
+                }
+            }
+        });
+    }
+
+    private void handleResetAuthorization(TLRPC.TL_account_resetAuthorization req, RequestDelegate onComplete) {
+        String homeserver = MatrixConfig.getHomeserver(currentAccount);
+        String accessToken = MatrixConfig.getAccessToken(currentAccount);
+        String devId = deviceHashToIdMap.get(req.hash);
+
+        if (!TextUtils.isEmpty(devId)) {
+            MatrixClient.getInstance().deleteDevice(homeserver, accessToken, devId, null);
+        }
+
+        if (onComplete != null) {
+            onComplete.run(new TLRPC.TL_boolTrue(), null);
+        }
+    }
+
+    private void handleResetAllAuthorizations(TLRPC.TL_auth_resetAuthorizations req, RequestDelegate onComplete) {
+        String homeserver = MatrixConfig.getHomeserver(currentAccount);
+        String accessToken = MatrixConfig.getAccessToken(currentAccount);
+        String currentDevId = MatrixConfig.getDeviceId(currentAccount);
+
+        for (String devId : deviceHashToIdMap.values()) {
+            if (!devId.equals(currentDevId)) {
+                MatrixClient.getInstance().deleteDevice(homeserver, accessToken, devId, null);
+            }
+        }
+
+        if (onComplete != null) {
+            onComplete.run(new TLRPC.TL_boolTrue(), null);
+        }
+    }
+
+    // ---------------- Native Polls (MSC3381) ----------------
+
+    private void handleSendPoll(String matrixRoomId, TLRPC.TL_inputMediaPoll pollMedia, RequestDelegate onComplete) {
+        String homeserver = MatrixConfig.getHomeserver(currentAccount);
+        String accessToken = MatrixConfig.getAccessToken(currentAccount);
+
+        if (TextUtils.isEmpty(matrixRoomId) || pollMedia == null || pollMedia.poll == null) {
+            if (onComplete != null) {
+                TLRPC.TL_error err = new TLRPC.TL_error();
+                err.code = 400;
+                err.text = "Invalid poll or room";
+                onComplete.run(null, err);
+            }
+            return;
+        }
+
+        String question = pollMedia.poll.question != null ? pollMedia.poll.question.text : "";
+        List<String> options = new ArrayList<>();
+        if (pollMedia.poll.answers != null) {
+            for (TLRPC.TL_pollAnswer a : pollMedia.poll.answers) {
+                if (a != null && a.text != null) {
+                    options.add(a.text.text);
+                }
+            }
+        }
+        boolean multipleChoice = pollMedia.poll.multiple_choice;
+        String txnId = idMapper.getNextTxnId();
+
+        MatrixClient.getInstance().sendPoll(homeserver, accessToken, matrixRoomId, question, options, multipleChoice, txnId, new MatrixClient.MatrixCallback<String>() {
+            @Override
+            public void onSuccess(String eventId) {
+                TLRPC.TL_updates updates = new TLRPC.TL_updates();
+                updates.date = (int) (System.currentTimeMillis() / 1000);
+                if (onComplete != null) {
+                    onComplete.run(updates, null);
+                }
+                AndroidUtilities.runOnUIThread(() -> {
+                    NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.dialogsNeedReload);
+                    NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.updateInterfaces, MessagesController.UPDATE_MASK_ALL);
+                });
+            }
+
+            @Override
+            public void onError(int code, String message) {
+                if (onComplete != null) {
+                    TLRPC.TL_error err = new TLRPC.TL_error();
+                    err.code = code;
+                    err.text = message;
+                    onComplete.run(null, err);
+                }
+            }
+        });
+    }
+
+    private void handleSendVote(TLRPC.TL_messages_sendVote req, RequestDelegate onComplete) {
+        long peerDialogId = DialogObject.getPeerDialogId(req.peer);
+        String matrixRoomId = idMapper.getMatrixRoomIdForDialog(peerDialogId);
+        String homeserver = MatrixConfig.getHomeserver(currentAccount);
+        String accessToken = MatrixConfig.getAccessToken(currentAccount);
+        String pollEventId = idMapper.getMatrixEventId(matrixRoomId, req.msg_id);
+
+        if (TextUtils.isEmpty(matrixRoomId) || TextUtils.isEmpty(pollEventId)) {
+            if (onComplete != null) {
+                TLRPC.TL_updates updates = new TLRPC.TL_updates();
+                onComplete.run(updates, null);
+            }
+            return;
+        }
+
+        List<String> answers = new ArrayList<>();
+        if (req.options != null) {
+            for (byte[] optBytes : req.options) {
+                if (optBytes != null && optBytes.length > 0) {
+                    answers.add(new String(optBytes, StandardCharsets.UTF_8));
+                }
+            }
+        }
+
+        String txnId = idMapper.getNextTxnId();
+        MatrixClient.getInstance().sendPollVote(homeserver, accessToken, matrixRoomId, pollEventId, answers, txnId, new MatrixClient.MatrixCallback<String>() {
+            @Override
+            public void onSuccess(String eventId) {
+                TLRPC.TL_updates updates = new TLRPC.TL_updates();
+                updates.date = (int) (System.currentTimeMillis() / 1000);
+                if (onComplete != null) {
+                    onComplete.run(updates, null);
+                }
+            }
+
+            @Override
+            public void onError(int code, String message) {
+                if (onComplete != null) {
+                    TLRPC.TL_updates updates = new TLRPC.TL_updates();
+                    onComplete.run(updates, null);
+                }
+            }
+        });
     }
 }

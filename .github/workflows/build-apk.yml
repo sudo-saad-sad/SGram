@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout Repository
@@ -54,3 +56,14 @@ jobs:
       with:
         name: SGram-Matrix-Debug-APK
         path: TMessagesProj_App/build/outputs/apk/**/*.apk
+
+    - name: Publish to GitHub Releases
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        APK_FILE=$(find TMessagesProj_App/build/outputs/apk/ -name "*.apk" | head -n 1)
+        if [ -n "$APK_FILE" ]; then
+          echo "Found APK at $APK_FILE"
+          gh release upload v0.3.1 "$APK_FILE#SGram-Matrix-debug.apk" --clobber || true
+        fi
