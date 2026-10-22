@@ -710,7 +710,14 @@ public class DrawerProfileCell extends FrameLayout implements NotificationCenter
         }
         animatedStatus.setColor(Theme.getColor(Theme.isCurrentThemeDark() ? Theme.key_chats_verifiedBackground : Theme.key_chats_menuPhoneCats));
         status.setColor(Theme.getColor(Theme.isCurrentThemeDark() ? Theme.key_chats_verifiedBackground : Theme.key_chats_menuPhoneCats));
-        phoneTextView.setText(PhoneFormat.getInstance().format("+" + user.phone));
+        if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(UserConfig.selectedAccount)) {
+            String matrixUserId = org.telegram.messenger.matrix.MatrixConfig.getUserId(UserConfig.selectedAccount);
+            phoneTextView.setText(!android.text.TextUtils.isEmpty(matrixUserId) ? matrixUserId : (user != null && user.phone != null ? user.phone : ""));
+        } else if (user != null && user.phone != null && !user.phone.isEmpty()) {
+            phoneTextView.setText(PhoneFormat.getInstance().format("+" + user.phone));
+        } else {
+            phoneTextView.setText("");
+        }
         AvatarDrawable avatarDrawable = new AvatarDrawable(user);
         avatarDrawable.setColor(Theme.getColor(Theme.key_avatar_backgroundInProfileBlue));
         avatarImageView.setForUserOrChat(user, avatarDrawable);

@@ -68,40 +68,27 @@ public class MatrixClient {
                 if (!normalizedHs.startsWith("http://") && !normalizedHs.startsWith("https://")) {
                     normalizedHs = "https://" + normalizedHs;
                 }
+                if (normalizedHs.contains("/_matrix")) {
+                    normalizedHs = normalizedHs.substring(0, normalizedHs.indexOf("/_matrix"));
+                }
                 if (normalizedHs.endsWith("/")) {
                     normalizedHs = normalizedHs.substring(0, normalizedHs.length() - 1);
                 }
 
-                URL url = new URL(normalizedHs + "/_matrix/client/v3/login");
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("POST");
-                conn.setConnectTimeout(15000);
-                conn.setReadTimeout(15000);
-                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-                conn.setRequestProperty("Accept", "application/json");
-                conn.setDoOutput(true);
-
-                JSONObject body = new JSONObject();
-                body.put("type", "m.login.password");
-                JSONObject identifier = new JSONObject();
-                identifier.put("type", "m.id.user");
-                identifier.put("user", username);
-                body.put("identifier", identifier);
-                body.put("password", password);
-                body.put("initial_device_display_name", "SGram Android");
-
-                byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
-                try (OutputStream os = conn.getOutputStream()) {
-                    os.write(bytes);
-                    os.flush();
+                // Try resolving .well-known if it's a bare domain
+                String discoveredHs = resolveWellKnown(normalizedHs);
+                if (!TextUtils.isEmpty(discoveredHs)) {
+                    normalizedHs = discoveredHs;
                 }
 
-                int statusCode = conn.getResponseCode();
-                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
-                String responseStr = readStream(is);
+                // Try v3 login, fallback to r0 on 404
+                LoginAttempt attempt = executeLoginRequest(normalizedHs, "/_matrix/client/v3/login", username, password);
+                if (attempt.statusCode == 404) {
+                    attempt = executeLoginRequest(normalizedHs, "/_matrix/client/r0/login", username, password);
+                }
 
-                if (statusCode >= 200 && statusCode < 300) {
-                    JSONObject json = new JSONObject(responseStr);
+                if (attempt.statusCode >= 200 && attempt.statusCode < 300) {
+                    JSONObject json = new JSONObject(attempt.responseStr);
                     LoginResult result = new LoginResult();
                     result.userId = json.optString("user_id", username);
                     result.accessToken = json.optString("access_token", "");
@@ -111,21 +98,83 @@ public class MatrixClient {
 
                     postSuccess(callback, result);
                 } else {
-                    String errorMsg = "HTTP " + statusCode;
+                    String errorMsg = "HTTP " + attempt.statusCode;
                     try {
-                        JSONObject errJson = new JSONObject(responseStr);
+                        JSONObject errJson = new JSONObject(attempt.responseStr);
                         if (errJson.has("error")) {
                             errorMsg = errJson.getString("error");
                         }
                     } catch (Exception ignore) {
                     }
-                    postError(callback, statusCode, errorMsg);
+                    postError(callback, attempt.statusCode, errorMsg);
                 }
             } catch (Exception e) {
                 FileLog.e("MatrixClient.login error", e);
                 postError(callback, -1, e.getMessage() != null ? e.getMessage() : "Network error");
             }
         });
+    }
+
+    private static class LoginAttempt {
+        int statusCode;
+        String responseStr;
+    }
+
+    private String resolveWellKnown(String domainUrl) {
+        try {
+            URL url = new URL(domainUrl + "/.well-known/matrix/client");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+            conn.setRequestProperty("Accept", "application/json");
+            if (conn.getResponseCode() == 200) {
+                String resp = readStream(conn.getInputStream());
+                JSONObject json = new JSONObject(resp);
+                JSONObject hsObj = json.optJSONObject("m.homeserver");
+                if (hsObj != null && hsObj.has("base_url")) {
+                    String baseUrl = hsObj.getString("base_url").trim();
+                    if (baseUrl.endsWith("/")) {
+                        baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+                    }
+                    return baseUrl;
+                }
+            }
+        } catch (Exception ignore) {
+        }
+        return null;
+    }
+
+    private LoginAttempt executeLoginRequest(String homeserver, String endpoint, String username, String password) throws Exception {
+        URL url = new URL(homeserver + endpoint);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setConnectTimeout(15000);
+        conn.setReadTimeout(15000);
+        conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+        conn.setRequestProperty("Accept", "application/json");
+        conn.setDoOutput(true);
+
+        JSONObject body = new JSONObject();
+        body.put("type", "m.login.password");
+        JSONObject identifier = new JSONObject();
+        identifier.put("type", "m.id.user");
+        identifier.put("user", username);
+        body.put("identifier", identifier);
+        body.put("password", password);
+        body.put("initial_device_display_name", "SGram Android");
+
+        byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(bytes);
+            os.flush();
+        }
+
+        LoginAttempt attempt = new LoginAttempt();
+        attempt.statusCode = conn.getResponseCode();
+        InputStream is = (attempt.statusCode >= 200 && attempt.statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+        attempt.responseStr = readStream(is);
+        return attempt;
     }
 
     // ---------------- Sync ----------------

@@ -362,6 +362,29 @@ public class UserConfig extends BaseController {
                 checkPremiumSelf(null, currentUser);
                 clientUserId = currentUser.id;
             }
+            if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+                String matrixUserId = org.telegram.messenger.matrix.MatrixConfig.getUserId(currentAccount);
+                String displayName = org.telegram.messenger.matrix.MatrixConfig.getDisplayName(currentAccount);
+                if (currentUser == null) {
+                    long numericUserId = org.telegram.messenger.matrix.MatrixIdMapper.getInstance(currentAccount).getNumericUserId(matrixUserId);
+                    currentUser = new TLRPC.TL_user();
+                    currentUser.id = numericUserId;
+                    currentUser.self = true;
+                    currentUser.status = new TLRPC.TL_userStatusOnline();
+                    clientUserId = currentUser.id;
+                }
+                if (android.text.TextUtils.isEmpty(currentUser.first_name)) {
+                    currentUser.first_name = !android.text.TextUtils.isEmpty(displayName) ? displayName : matrixUserId;
+                }
+                if (android.text.TextUtils.isEmpty(currentUser.username)) {
+                    currentUser.username = matrixUserId.replaceFirst("^@", "").replace(':', '_');
+                }
+                if (android.text.TextUtils.isEmpty(currentUser.phone)) {
+                    currentUser.phone = matrixUserId;
+                }
+                currentUser.flags |= 2 | 8 | 16 | 64 | 1024;
+                saveConfig(true);
+            }
             configLoaded = true;
         }
     }

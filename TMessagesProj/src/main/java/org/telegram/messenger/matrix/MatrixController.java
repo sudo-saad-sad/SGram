@@ -242,6 +242,11 @@ public class MatrixController {
                 // 4. Create Dialog
                 TLRPC.TL_dialog dialog = new TLRPC.TL_dialog();
                 dialog.id = dialogId;
+                TLRPC.TL_peerChat peer = new TLRPC.TL_peerChat();
+                peer.chat_id = chatId;
+                dialog.peer = peer;
+                dialog.notify_settings = new TLRPC.TL_peerNotifySettings();
+                dialog.unread_count = 0;
                 if (topMessageId > 0) {
                     dialog.top_message = topMessageId;
                     dialog.last_message_date = topMessageDate;
@@ -470,7 +475,9 @@ public class MatrixController {
         user.id = numericId;
         user.first_name = !TextUtils.isEmpty(displayName) ? displayName : matrixUserId;
         user.username = matrixUserId.replaceFirst("^@", "").replace(':', '_');
+        user.phone = matrixUserId;
         user.self = isSelf;
+        user.flags |= 2 | 8 | 16 | 64 | (isSelf ? 1024 : 0);
         user.status = new TLRPC.TL_userStatusOnline();
         user.status.expires = (int) (System.currentTimeMillis() / 1000) + 300;
         return user;
