@@ -51,7 +51,7 @@ public class MatrixConfig {
     }
 
     public static void setDisplayName(int account, String displayName) {
-        getPrefs(account).edit().putString(KEY_DISPLAY_NAME, displayName).apply();
+        getPrefs(account).edit().putString(KEY_DISPLAY_NAME, displayName).commit();
     }
 
     public static String getSyncBatch(int account) {
@@ -59,7 +59,7 @@ public class MatrixConfig {
     }
 
     public static void setSyncBatch(int account, String nextBatch) {
-        getPrefs(account).edit().putString(KEY_SYNC_BATCH, nextBatch).apply();
+        getPrefs(account).edit().putString(KEY_SYNC_BATCH, nextBatch).commit();
     }
 
     public static void saveSession(int account, String homeserver, String userId, String accessToken, String deviceId, String displayName) {
@@ -73,11 +73,11 @@ public class MatrixConfig {
                 .putString(KEY_ACCESS_TOKEN, accessToken)
                 .putString(KEY_DEVICE_ID, deviceId != null ? deviceId : "")
                 .putString(KEY_DISPLAY_NAME, displayName != null ? displayName : userId)
-                .apply();
+                .commit();
     }
 
     public static void clearSession(int account) {
-        getPrefs(account).edit().clear().apply();
+        getPrefs(account).edit().clear().commit();
     }
 
     public static void clear(int account) {

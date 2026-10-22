@@ -218,7 +218,7 @@ public class UserConfig extends BaseController {
                         editor.remove("user");
                     }
 
-                    editor.apply();
+                    editor.commit();
                 } catch (Exception e) {
                     FileLog.e(e);
                 }
@@ -392,9 +392,11 @@ public class UserConfig extends BaseController {
                     currentUser.phone = matrixUserId;
                 }
                 currentUser.flags |= 2 | 8 | 16 | 64 | 1024;
-                saveConfig(true);
             }
             configLoaded = true;
+            if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+                saveConfig(true);
+            }
         }
     }
 

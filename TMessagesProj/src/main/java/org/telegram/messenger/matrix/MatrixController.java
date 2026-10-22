@@ -71,6 +71,15 @@ public class MatrixController {
         }
         isRunning = true;
         FileLog.d("MatrixController[" + currentAccount + "] started");
+
+        // Immediately load cached dialogs and messages from SQLite storage on launch
+        AndroidUtilities.runOnUIThread(() -> {
+            MessagesController.getInstance(currentAccount).loadDialogs(0, 0, 100, true);
+        });
+
+        // Initialize and upload device encryption keys so other Matrix users can exchange keys and chat securely
+        MatrixKeyManager.getInstance(currentAccount).initAndUploadKeys();
+
         scheduleSync(0);
     }
 
@@ -131,6 +140,15 @@ public class MatrixController {
             String myMatrixId = MatrixConfig.getUserId(currentAccount);
             String homeserver = MatrixConfig.getHomeserver(currentAccount);
             String accessToken = MatrixConfig.getAccessToken(currentAccount);
+
+            // 0. Process To-Device Events (m.room_key, m.forwarded_room_key, key distribution)
+            JSONObject toDeviceObj = fullJson.optJSONObject("to_device");
+            if (toDeviceObj != null) {
+                JSONArray toDeviceEvents = toDeviceObj.optJSONArray("events");
+                if (toDeviceEvents != null && toDeviceEvents.length() > 0) {
+                    MatrixKeyManager.getInstance(currentAccount).processToDeviceEvents(toDeviceEvents);
+                }
+            }
 
             // 1. Process Presence Events
             JSONObject presenceObj = fullJson.optJSONObject("presence");
@@ -505,7 +523,8 @@ public class MatrixController {
                                 continue;
                             }
 
-                            if (!"m.room.message".equals(type)) {
+                            // Support both m.room.message and m.room.encrypted
+                            if (!"m.room.message".equals(type) && !"m.room.encrypted".equals(type)) {
                                 continue;
                             }
 
@@ -586,6 +605,7 @@ public class MatrixController {
                 dialogsRes.chats.addAll(newChats);
                 dialogsRes.users.addAll(newUsers);
                 dialogsRes.messages.addAll(newMessages);
+                MessagesStorage.getInstance(currentAccount).putDialogs(dialogsRes, 0);
                 MessagesController.getInstance(currentAccount).processLoadedDialogs(dialogsRes, null, null, 0, 0, newDialogs.size(), 0, false, false, false);
             }
 
@@ -679,9 +699,7 @@ public class MatrixController {
             handleGetFullChat((TLRPC.TL_messages_getFullChat) object, onComplete);
             return true;
         } else if (object instanceof TLRPC.TL_messages_getDialogs) {
-            if (onComplete != null) {
-                onComplete.run(new TLRPC.TL_messages_dialogs(), null);
-            }
+            handleGetDialogs((TLRPC.TL_messages_getDialogs) object, onComplete);
             return true;
         } else if (object instanceof TLRPC.TL_account_updateStatus) {
             if (onComplete != null) {
@@ -1729,6 +1747,37 @@ public class MatrixController {
         }
     }
 
+    private void handleGetDialogs(TLRPC.TL_messages_getDialogs req, RequestDelegate onComplete) {
+        if (onComplete != null) {
+            AndroidUtilities.runOnUIThread(() -> {
+                TLRPC.TL_messages_dialogs dialogsRes = new TLRPC.TL_messages_dialogs();
+                ArrayList<TLRPC.Dialog> all = MessagesController.getInstance(currentAccount).getAllDialogs();
+                if (all != null && !all.isEmpty()) {
+                    dialogsRes.dialogs.addAll(all);
+                    for (TLRPC.Dialog d : all) {
+                        if (d.id > 0) {
+                            TLRPC.User u = MessagesController.getInstance(currentAccount).getUser(d.id);
+                            if (u != null) {
+                                dialogsRes.users.add(u);
+                            }
+                        } else if (d.id < 0) {
+                            TLRPC.Chat c = MessagesController.getInstance(currentAccount).getChat(-d.id);
+                            if (c != null) {
+                                dialogsRes.chats.add(c);
+                            }
+                        }
+                    }
+                    onComplete.run(dialogsRes, null);
+                } else {
+                    MessagesStorage.getInstance(currentAccount).getStorageQueue().postRunnable(() -> {
+                        MessagesStorage.getInstance(currentAccount).getDialogs(req.folder_id, 0, req.limit > 0 ? req.limit : 100, false);
+                    });
+                    onComplete.run(dialogsRes, null);
+                }
+            });
+        }
+    }
+
     private void handleGetFile(TLRPC.TL_upload_getFile req, RequestDelegate onComplete) {
         long mediaId = 0;
         if (req.location instanceof TLRPC.TL_inputPhotoFileLocation) {
@@ -2149,7 +2198,11 @@ public class MatrixController {
     }
 
     private TLRPC.TL_message parseMatrixMessageEvent(String roomId, JSONObject ev, long peerDialogId, TLRPC.Peer dialogPeer, String myMatrixId) {
-        if (ev == null || !"m.room.message".equals(ev.optString("type"))) {
+        if (ev == null) {
+            return null;
+        }
+        String type = ev.optString("type");
+        if (!"m.room.message".equals(type) && !"m.room.encrypted".equals(type)) {
             return null;
         }
         JSONObject content = ev.optJSONObject("content");
@@ -2158,12 +2211,42 @@ public class MatrixController {
         String eventId = ev.optString("event_id");
         String senderId = ev.optString("sender");
         long originServerTs = ev.optLong("origin_server_ts", System.currentTimeMillis());
-        String body = content.optString("body", "");
-        String msgType = content.optString("msgtype", "m.text");
 
         int msgId = idMapper.getNumericMessageId(roomId, eventId);
         long senderNumericId = idMapper.getNumericUserId(senderId);
         boolean isOut = senderId != null && senderId.equals(myMatrixId);
+
+        // Handle Encrypted Matrix Message (m.room.encrypted)
+        if ("m.room.encrypted".equals(type)) {
+            String sessionId = content.optString("session_id", "");
+            boolean hasKey = MatrixKeyManager.getInstance(currentAccount).hasRoomKey(roomId, sessionId);
+
+            TLRPC.TL_message msg = new TLRPC.TL_message();
+            msg.id = msgId;
+            msg.date = (int) (originServerTs / 1000);
+            if (hasKey) {
+                msg.message = "🔒 [پیام رمزگذاری‌شده ماتریکس - کلید دریافت شد]";
+            } else {
+                msg.message = "🔐 [پیام رمزگذاری‌شده ماتریکس / Encrypted Message]";
+            }
+            msg.flags = TLRPC.MESSAGE_FLAG_HAS_FROM_ID;
+
+            TLRPC.TL_peerUser fromPeer = new TLRPC.TL_peerUser();
+            fromPeer.user_id = senderNumericId;
+            msg.from_id = fromPeer;
+            msg.peer_id = dialogPeer;
+            msg.dialog_id = peerDialogId;
+
+            if (isOut) {
+                msg.out = true;
+                msg.flags |= 2;
+            }
+            msg.send_state = 0;
+            return msg;
+        }
+
+        String body = content.optString("body", "");
+        String msgType = content.optString("msgtype", "m.text");
 
         TLRPC.TL_message msg = new TLRPC.TL_message();
         msg.id = msgId;

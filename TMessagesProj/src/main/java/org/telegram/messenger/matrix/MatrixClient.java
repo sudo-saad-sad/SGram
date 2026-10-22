@@ -1598,6 +1598,113 @@ public class MatrixClient {
         });
     }
 
+    public void uploadKeys(String homeserver, String accessToken, JSONObject payload, MatrixCallback<JSONObject> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                URL url = new URL(homeserver + "/_matrix/client/v3/keys/upload");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setDoOutput(true);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(payload.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    postSuccess(callback, json);
+                } else {
+                    postError(callback, statusCode, "Upload keys failed: " + statusCode + " " + responseStr);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void queryKeys(String homeserver, String accessToken, java.util.List<String> userIds, MatrixCallback<JSONObject> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                URL url = new URL(homeserver + "/_matrix/client/v3/keys/query");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                JSONObject deviceKeys = new JSONObject();
+                if (userIds != null) {
+                    for (String uid : userIds) {
+                        deviceKeys.put(uid, new JSONArray());
+                    }
+                }
+                body.put("device_keys", deviceKeys);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    postSuccess(callback, json);
+                } else {
+                    postError(callback, statusCode, "Query keys failed: " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void sendToDevice(String homeserver, String accessToken, String eventType, String txnId, JSONObject messages, MatrixCallback<Boolean> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedType = URLEncoder.encode(eventType, "UTF-8");
+                String encodedTxn = URLEncoder.encode(txnId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/sendToDevice/" + encodedType + "/" + encodedTxn);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("PUT");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                body.put("messages", messages);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                postSuccess(callback, statusCode >= 200 && statusCode < 300);
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
     // ---------------- Helper Methods ----------------
 
     private String readStream(InputStream is) throws Exception {

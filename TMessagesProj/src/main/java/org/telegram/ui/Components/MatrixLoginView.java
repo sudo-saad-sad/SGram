@@ -193,6 +193,7 @@ public class MatrixLoginView extends SlideView {
                 currentUser.status = new TLRPC.TL_userStatusOnline();
 
                 // 4. Save UserConfig and start MatrixController
+                UserConfig.selectedAccount = currentAccount;
                 UserConfig.getInstance(currentAccount).setCurrentUser(currentUser);
                 UserConfig.getInstance(currentAccount).saveConfig(true);
                 MatrixController.getInstance(currentAccount).start();

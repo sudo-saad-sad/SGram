@@ -73,7 +73,7 @@ public class MatrixIdMapper {
                     .putLong(key, id)
                     .putString("ru_" + id, matrixUserId)
                     .putLong("seq_user_id", nextId + 1)
-                    .apply();
+                    .commit();
         }
         userToNumericCache.put(matrixUserId, id);
         numericToUserCache.put(id, matrixUserId);
@@ -115,7 +115,7 @@ public class MatrixIdMapper {
                     .putLong(key, id)
                     .putString("rr_" + id, matrixRoomId)
                     .putLong("seq_chat_id", nextId + 1)
-                    .apply();
+                    .commit();
         }
         roomToNumericCache.put(matrixRoomId, id);
         numericToRoomCache.put(id, matrixRoomId);
@@ -147,7 +147,7 @@ public class MatrixIdMapper {
         prefs.edit()
                 .putString("dm_u_" + peerNumericUserId, matrixRoomId)
                 .putLong("dm_r_" + matrixRoomId, peerNumericUserId)
-                .apply();
+                .commit();
     }
 
     public synchronized boolean isDirectRoom(String matrixRoomId) {
@@ -200,7 +200,7 @@ public class MatrixIdMapper {
         if (avatarUrl != null) {
             edit.putString("av_" + numericUserId, avatarUrl);
         }
-        edit.apply();
+        edit.commit();
     }
 
     public synchronized String getUserDisplayName(long numericUserId) {
@@ -246,7 +246,7 @@ public class MatrixIdMapper {
                     .putInt(key, id)
                     .putString("re_" + matrixRoomId + ":" + id, eventId)
                     .putInt("seq_msg_" + matrixRoomId, nextId + 1)
-                    .apply();
+                    .commit();
         }
         eventToNumericCache.put(cacheKey, id);
         numericToEventCache.put(matrixRoomId + ":" + id, eventId);
