@@ -748,6 +748,81 @@ public class MatrixController {
                 onComplete.run(new TLRPC.TL_messages_reactions(), null);
             }
             return true;
+        } else if (object instanceof TLRPC.TL_messages_getCommonChats) {
+            handleGetCommonChats((TLRPC.TL_messages_getCommonChats) object, onComplete);
+            return true;
+        } else if (object instanceof TLRPC.TL_channels_getFullChannel) {
+            handleGetFullChannel((TLRPC.TL_channels_getFullChannel) object, onComplete);
+            return true;
+        } else if (object instanceof TLRPC.TL_channels_getParticipants) {
+            handleGetChannelParticipants((TLRPC.TL_channels_getParticipants) object, onComplete);
+            return true;
+        } else if (object instanceof TLRPC.TL_contacts_getBlocked) {
+            if (onComplete != null) {
+                onComplete.run(new TLRPC.TL_contacts_blocked(), null);
+            }
+            return true;
+        } else if (object instanceof TLRPC.TL_contacts_getStatuses) {
+            if (onComplete != null) {
+                onComplete.run(new TLRPC.Vector(), null);
+            }
+            return true;
+        } else if (object instanceof TLRPC.TL_messages_getPinnedDialogs || object instanceof TLRPC.TL_messages_getPeerDialogs) {
+            if (onComplete != null) {
+                onComplete.run(new TLRPC.TL_messages_peerDialogs(), null);
+            }
+            return true;
+        } else if (object instanceof TLRPC.TL_account_getNotifySettings) {
+            if (onComplete != null) {
+                onComplete.run(new TLRPC.TL_peerNotifySettings(), null);
+            }
+            return true;
+        } else if (object instanceof TLRPC.TL_account_updateNotifySettings) {
+            if (onComplete != null) {
+                onComplete.run(new TLRPC.TL_boolTrue(), null);
+            }
+            return true;
+        } else if (object instanceof TLRPC.TL_messages_getDialogFilters) {
+            if (onComplete != null) {
+                onComplete.run(new TLRPC.TL_messages_dialogFilters(), null);
+            }
+            return true;
+        } else if (object instanceof TLRPC.TL_messages_updateDialogFilter) {
+            if (onComplete != null) {
+                onComplete.run(new TLRPC.TL_boolTrue(), null);
+            }
+            return true;
+        } else if (object instanceof TLRPC.TL_messages_toggleDialogPin) {
+            if (onComplete != null) {
+                onComplete.run(new TLRPC.TL_boolTrue(), null);
+            }
+            return true;
+        } else if (object instanceof TLRPC.TL_messages_searchGlobal || object instanceof TLRPC.TL_messages_search) {
+            if (onComplete != null) {
+                onComplete.run(new TLRPC.TL_messages_messages(), null);
+            }
+            return true;
+        } else if (object instanceof TLRPC.TL_messages_getRecentStickers) {
+            if (onComplete != null) {
+                onComplete.run(new TLRPC.TL_messages_recentStickers(), null);
+            }
+            return true;
+        } else if (object instanceof TLRPC.TL_messages_getAllStickers) {
+            if (onComplete != null) {
+                onComplete.run(new TLRPC.TL_messages_allStickers(), null);
+            }
+            return true;
+        } else if (object instanceof TLRPC.TL_messages_getSavedGifs) {
+            if (onComplete != null) {
+                onComplete.run(new TLRPC.TL_messages_savedGifs(), null);
+            }
+            return true;
+        } else if (object instanceof TLRPC.TL_account_getPrivacy) {
+            if (onComplete != null) {
+                TLRPC.TL_account_privacyRules rules = new TLRPC.TL_account_privacyRules();
+                onComplete.run(rules, null);
+            }
+            return true;
         }
 
         return false;
@@ -1582,6 +1657,78 @@ public class MatrixController {
         }
     }
 
+    private void handleGetCommonChats(TLRPC.TL_messages_getCommonChats req, RequestDelegate onComplete) {
+        long userId = req.user_id != null ? req.user_id.user_id : 0;
+        String matrixUserId = idMapper.getMatrixUserId(userId);
+
+        if (TextUtils.isEmpty(matrixUserId)) {
+            if (onComplete != null) {
+                onComplete.run(new TLRPC.TL_messages_chats(), null);
+            }
+            return;
+        }
+
+        String homeserver = MatrixConfig.getHomeserver(currentAccount);
+        String accessToken = MatrixConfig.getAccessToken(currentAccount);
+
+        MatrixClient.getInstance().getMutualRooms(homeserver, accessToken, matrixUserId, new MatrixClient.MatrixCallback<List<String>>() {
+            @Override
+            public void onSuccess(List<String> roomIds) {
+                TLRPC.TL_messages_chats res = new TLRPC.TL_messages_chats();
+                if (roomIds != null) {
+                    for (String rId : roomIds) {
+                        long cId = idMapper.getNumericChatId(rId);
+                        TLRPC.Chat c = MessagesController.getInstance(currentAccount).getChat(cId);
+                        if (c != null) {
+                            res.chats.add(c);
+                        } else {
+                            res.chats.add(createTLChat(cId, "Matrix Group " + cId, "", 2));
+                        }
+                    }
+                }
+                if (onComplete != null) {
+                    onComplete.run(res, null);
+                }
+            }
+
+            @Override
+            public void onError(int code, String message) {
+                if (onComplete != null) {
+                    onComplete.run(new TLRPC.TL_messages_chats(), null);
+                }
+            }
+        });
+    }
+
+    private void handleGetFullChannel(TLRPC.TL_channels_getFullChannel req, RequestDelegate onComplete) {
+        long chatId = req.channel != null ? req.channel.channel_id : 0;
+        String roomId = idMapper.getMatrixRoomId(chatId);
+
+        TLRPC.TL_messages_chatFull chatFull = new TLRPC.TL_messages_chatFull();
+        TLRPC.TL_channelFull full = new TLRPC.TL_channelFull();
+        full.id = chatId;
+        full.about = !TextUtils.isEmpty(roomId) ? roomId : "Matrix Room";
+        full.notify_settings = new TLRPC.TL_peerNotifySettings();
+        chatFull.full_chat = full;
+
+        TLRPC.Chat c = MessagesController.getInstance(currentAccount).getChat(chatId);
+        if (c != null) {
+            chatFull.chats.add(c);
+        }
+
+        if (onComplete != null) {
+            onComplete.run(chatFull, null);
+        }
+    }
+
+    private void handleGetChannelParticipants(TLRPC.TL_channels_getParticipants req, RequestDelegate onComplete) {
+        TLRPC.TL_channels_channelParticipants res = new TLRPC.TL_channels_channelParticipants();
+        res.count = 0;
+        if (onComplete != null) {
+            onComplete.run(res, null);
+        }
+    }
+
     private void handleGetFile(TLRPC.TL_upload_getFile req, RequestDelegate onComplete) {
         long mediaId = 0;
         if (req.location instanceof TLRPC.TL_inputPhotoFileLocation) {
@@ -1654,7 +1801,9 @@ public class MatrixController {
             webFile.mime_type = "application/octet-stream";
             webFile.file_type = new TLRPC.TL_storage_filePartial();
             webFile.mtime = (int) (System.currentTimeMillis() / 1000);
-            webFile.bytes = new NativeByteBuffer(0);
+            try {
+                webFile.bytes = new NativeByteBuffer(0);
+            } catch (Exception ignore) {}
             onComplete.run(webFile, null);
         }
     }
@@ -1696,23 +1845,33 @@ public class MatrixController {
     }
 
     private void serveMemoryChunk(byte[] allBytes, long offset, int limit, RequestDelegate onComplete) {
-        if (allBytes == null || offset >= allBytes.length) {
-            TLRPC.TL_upload_file emptyFile = new TLRPC.TL_upload_file();
-            emptyFile.type = new TLRPC.TL_storage_filePartial();
-            emptyFile.mtime = (int) (System.currentTimeMillis() / 1000);
-            emptyFile.bytes = new NativeByteBuffer(0);
-            if (onComplete != null) onComplete.run(emptyFile, null);
-            return;
+        try {
+            if (allBytes == null || offset >= allBytes.length) {
+                TLRPC.TL_upload_file emptyFile = new TLRPC.TL_upload_file();
+                emptyFile.type = new TLRPC.TL_storage_filePartial();
+                emptyFile.mtime = (int) (System.currentTimeMillis() / 1000);
+                emptyFile.bytes = new NativeByteBuffer(0);
+                if (onComplete != null) onComplete.run(emptyFile, null);
+                return;
+            }
+            int toRead = (int) Math.min(limit, allBytes.length - offset);
+            TLRPC.TL_upload_file res = new TLRPC.TL_upload_file();
+            res.type = new TLRPC.TL_storage_filePartial();
+            res.mtime = (int) (System.currentTimeMillis() / 1000);
+            NativeByteBuffer buf = new NativeByteBuffer(toRead);
+            buf.writeBytes(allBytes, (int) offset, toRead);
+            buf.position(0);
+            res.bytes = buf;
+            if (onComplete != null) onComplete.run(res, null);
+        } catch (Exception e) {
+            FileLog.e("serveMemoryChunk error", e);
+            if (onComplete != null) {
+                TLRPC.TL_error err = new TLRPC.TL_error();
+                err.code = 500;
+                err.text = e.getMessage();
+                onComplete.run(null, err);
+            }
         }
-        int toRead = (int) Math.min(limit, allBytes.length - offset);
-        TLRPC.TL_upload_file res = new TLRPC.TL_upload_file();
-        res.type = new TLRPC.TL_storage_filePartial();
-        res.mtime = (int) (System.currentTimeMillis() / 1000);
-        NativeByteBuffer buf = new NativeByteBuffer(toRead);
-        buf.writeBytes(allBytes, (int) offset, toRead);
-        buf.position(0);
-        res.bytes = buf;
-        if (onComplete != null) onComplete.run(res, null);
     }
 
     private void handleUploadProfilePhoto(TLRPC.TL_photos_uploadProfilePhoto req, RequestDelegate onComplete) {

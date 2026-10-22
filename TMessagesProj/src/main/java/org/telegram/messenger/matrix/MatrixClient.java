@@ -1563,6 +1563,41 @@ public class MatrixClient {
         });
     }
 
+    public void getMutualRooms(String homeserver, String accessToken, String targetUserId, MatrixCallback<java.util.List<String>> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedUser = URLEncoder.encode(targetUserId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v1/mutual_rooms?user_id=" + encodedUser);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Accept", "application/json");
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    JSONArray rooms = json.optJSONArray("joined_rooms");
+                    java.util.List<String> list = new java.util.ArrayList<>();
+                    if (rooms != null) {
+                        for (int i = 0; i < rooms.length(); i++) {
+                            list.add(rooms.getString(i));
+                        }
+                    }
+                    postSuccess(callback, list);
+                } else {
+                    postError(callback, statusCode, "Get mutual rooms failed: " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
     // ---------------- Helper Methods ----------------
 
     private String readStream(InputStream is) throws Exception {
