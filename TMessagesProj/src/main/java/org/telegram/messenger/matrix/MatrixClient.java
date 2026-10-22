@@ -784,6 +784,785 @@ public class MatrixClient {
         });
     }
 
+    // ---------------- Media Upload ----------------
+
+    public void uploadMedia(String homeserver, String accessToken, byte[] fileBytes, String mimeType, String filename, MatrixCallback<String> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                StringBuilder urlBuilder = new StringBuilder(homeserver);
+                urlBuilder.append("/_matrix/media/v3/upload");
+                if (!TextUtils.isEmpty(filename)) {
+                    urlBuilder.append("?filename=").append(URLEncoder.encode(filename, "UTF-8"));
+                }
+                URL url = new URL(urlBuilder.toString());
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(30000);
+                conn.setReadTimeout(30000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", !TextUtils.isEmpty(mimeType) ? mimeType : "application/octet-stream");
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setDoOutput(true);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(fileBytes);
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    String contentUri = json.optString("content_uri", null);
+                    postSuccess(callback, contentUri);
+                } else {
+                    postError(callback, statusCode, "Upload media failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                FileLog.e("MatrixClient.uploadMedia error", e);
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    // ---------------- Send Media Message ----------------
+
+    public void sendMediaMessage(String homeserver, String accessToken, String roomId, String mxcUrl, String msgType, String filename, String caption, String txnId, MatrixCallback<String> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedRoom = URLEncoder.encode(roomId, "UTF-8");
+                String encodedTxn = URLEncoder.encode(txnId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/rooms/" + encodedRoom + "/send/m.room.message/" + encodedTxn);
+
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("PUT");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                body.put("msgtype", !TextUtils.isEmpty(msgType) ? msgType : "m.file");
+                body.put("url", mxcUrl);
+                body.put("body", !TextUtils.isEmpty(caption) ? caption : (filename != null ? filename : "file"));
+
+                JSONObject info = new JSONObject();
+                body.put("info", info);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    postSuccess(callback, json.optString("event_id", null));
+                } else {
+                    postError(callback, statusCode, "Send media message failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    // ---------------- Emoji Reactions ----------------
+
+    public void sendReaction(String homeserver, String accessToken, String roomId, String targetEventId, String emoji, String txnId, MatrixCallback<String> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedRoom = URLEncoder.encode(roomId, "UTF-8");
+                String encodedTxn = URLEncoder.encode(txnId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/rooms/" + encodedRoom + "/send/m.reaction/" + encodedTxn);
+
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("PUT");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                JSONObject relatesTo = new JSONObject();
+                relatesTo.put("rel_type", "m.annotation");
+                relatesTo.put("event_id", targetEventId);
+                relatesTo.put("key", emoji);
+                body.put("m.relates_to", relatesTo);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    postSuccess(callback, json.optString("event_id", null));
+                } else {
+                    postError(callback, statusCode, "Send reaction failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    // ---------------- Room State (Name, Topic, Pinned) ----------------
+
+    public void setRoomState(String homeserver, String accessToken, String roomId, String eventType, String stateKey, JSONObject content, MatrixCallback<String> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedRoom = URLEncoder.encode(roomId, "UTF-8");
+                String encodedType = URLEncoder.encode(eventType, "UTF-8");
+                String path = homeserver + "/_matrix/client/v3/rooms/" + encodedRoom + "/state/" + encodedType;
+                if (!TextUtils.isEmpty(stateKey)) {
+                    path += "/" + URLEncoder.encode(stateKey, "UTF-8");
+                }
+                URL url = new URL(path);
+
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("PUT");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(content.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    postSuccess(callback, json.optString("event_id", null));
+                } else {
+                    postError(callback, statusCode, "Set room state failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    // ---------------- Room Membership (Invite, Kick, Leave, Forget) ----------------
+
+    public void inviteUser(String homeserver, String accessToken, String roomId, String userId, MatrixCallback<Boolean> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedRoom = URLEncoder.encode(roomId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/rooms/" + encodedRoom + "/invite");
+
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                body.put("user_id", userId);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                if (statusCode >= 200 && statusCode < 300) {
+                    postSuccess(callback, true);
+                } else {
+                    postError(callback, statusCode, "Invite user failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void kickUser(String homeserver, String accessToken, String roomId, String userId, String reason, MatrixCallback<Boolean> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedRoom = URLEncoder.encode(roomId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/rooms/" + encodedRoom + "/kick");
+
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                body.put("user_id", userId);
+                if (!TextUtils.isEmpty(reason)) {
+                    body.put("reason", reason);
+                }
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                if (statusCode >= 200 && statusCode < 300) {
+                    postSuccess(callback, true);
+                } else {
+                    postError(callback, statusCode, "Kick user failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void leaveRoom(String homeserver, String accessToken, String roomId, MatrixCallback<Boolean> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedRoom = URLEncoder.encode(roomId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/rooms/" + encodedRoom + "/leave");
+
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write("{}".getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                if (statusCode >= 200 && statusCode < 300) {
+                    postSuccess(callback, true);
+                } else {
+                    postError(callback, statusCode, "Leave room failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void forgetRoom(String homeserver, String accessToken, String roomId, MatrixCallback<Boolean> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedRoom = URLEncoder.encode(roomId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/rooms/" + encodedRoom + "/forget");
+
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write("{}".getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                if (statusCode >= 200 && statusCode < 300) {
+                    postSuccess(callback, true);
+                } else {
+                    postError(callback, statusCode, "Forget room failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    // ---------------- User Presence & Profile ----------------
+
+    public void updatePresence(String homeserver, String accessToken, String userId, String presence, String statusMsg, MatrixCallback<Boolean> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedUser = URLEncoder.encode(userId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/presence/" + encodedUser + "/status");
+
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("PUT");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                body.put("presence", !TextUtils.isEmpty(presence) ? presence : "online");
+                if (!TextUtils.isEmpty(statusMsg)) {
+                    body.put("status_msg", statusMsg);
+                }
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                if (statusCode >= 200 && statusCode < 300) {
+                    postSuccess(callback, true);
+                } else {
+                    postError(callback, statusCode, "Update presence failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void updateProfileDisplayName(String homeserver, String accessToken, String userId, String displayName, MatrixCallback<Boolean> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedUser = URLEncoder.encode(userId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/profile/" + encodedUser + "/displayname");
+
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("PUT");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                body.put("displayname", displayName != null ? displayName : "");
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                if (statusCode >= 200 && statusCode < 300) {
+                    postSuccess(callback, true);
+                } else {
+                    postError(callback, statusCode, "Update displayname failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void updateProfileAvatar(String homeserver, String accessToken, String userId, String avatarMxcUrl, MatrixCallback<Boolean> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedUser = URLEncoder.encode(userId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/profile/" + encodedUser + "/avatar_url");
+
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("PUT");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                body.put("avatar_url", avatarMxcUrl != null ? avatarMxcUrl : "");
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                if (statusCode >= 200 && statusCode < 300) {
+                    postSuccess(callback, true);
+                } else {
+                    postError(callback, statusCode, "Update avatar failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void downloadMedia(String homeserver, String accessToken, String mxcUrl, MatrixCallback<byte[]> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                if (TextUtils.isEmpty(mxcUrl) || !mxcUrl.startsWith("mxc://")) {
+                    postError(callback, 400, "Invalid mxc URL");
+                    return;
+                }
+                String path = mxcUrl.substring(6);
+                int slash = path.indexOf('/');
+                if (slash <= 0) {
+                    postError(callback, 400, "Invalid mxc URL format");
+                    return;
+                }
+                String server = path.substring(0, slash);
+                String mediaId = path.substring(slash + 1);
+
+                String hs = homeserver;
+                if (hs.endsWith("/")) {
+                    hs = hs.substring(0, hs.length() - 1);
+                }
+
+                URL url = new URL(hs + "/_matrix/media/v3/download/" + server + "/" + mediaId);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(20000);
+                conn.setReadTimeout(30000);
+                if (!TextUtils.isEmpty(accessToken)) {
+                    conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                }
+
+                int statusCode = conn.getResponseCode();
+                if (statusCode >= 200 && statusCode < 300) {
+                    try (InputStream is = conn.getInputStream();
+                         java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream()) {
+                        byte[] data = new byte[8192];
+                        int nRead;
+                        while ((nRead = is.read(data, 0, data.length)) != -1) {
+                            buffer.write(data, 0, nRead);
+                        }
+                        postSuccess(callback, buffer.toByteArray());
+                    }
+                } else {
+                    postError(callback, statusCode, "Download media failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                FileLog.e("MatrixClient.downloadMedia error", e);
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void downloadMediaThumbnail(String homeserver, String accessToken, String mxcUrl, int width, int height, String method, MatrixCallback<byte[]> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                if (TextUtils.isEmpty(mxcUrl) || !mxcUrl.startsWith("mxc://")) {
+                    postError(callback, 400, "Invalid mxc URL");
+                    return;
+                }
+                String path = mxcUrl.substring(6);
+                int slash = path.indexOf('/');
+                if (slash <= 0) {
+                    postError(callback, 400, "Invalid mxc URL format");
+                    return;
+                }
+                String server = path.substring(0, slash);
+                String mediaId = path.substring(slash + 1);
+
+                String hs = homeserver;
+                if (hs.endsWith("/")) {
+                    hs = hs.substring(0, hs.length() - 1);
+                }
+
+                String m = TextUtils.isEmpty(method) ? "scale" : method;
+                URL url = new URL(hs + "/_matrix/media/v3/thumbnail/" + server + "/" + mediaId + "?width=" + width + "&height=" + height + "&method=" + m);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(20000);
+                if (!TextUtils.isEmpty(accessToken)) {
+                    conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                }
+
+                int statusCode = conn.getResponseCode();
+                if (statusCode >= 200 && statusCode < 300) {
+                    try (InputStream is = conn.getInputStream();
+                         java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream()) {
+                        byte[] data = new byte[8192];
+                        int nRead;
+                        while ((nRead = is.read(data, 0, data.length)) != -1) {
+                            buffer.write(data, 0, nRead);
+                        }
+                        postSuccess(callback, buffer.toByteArray());
+                    }
+                } else {
+                    postError(callback, statusCode, "Download thumbnail failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                FileLog.e("MatrixClient.downloadMediaThumbnail error", e);
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void banUser(String homeserver, String accessToken, String roomId, String userId, String reason, MatrixCallback<Boolean> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedRoom = URLEncoder.encode(roomId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/rooms/" + encodedRoom + "/ban");
+
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                body.put("user_id", userId);
+                if (!TextUtils.isEmpty(reason)) {
+                    body.put("reason", reason);
+                }
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                if (statusCode >= 200 && statusCode < 300) {
+                    postSuccess(callback, true);
+                } else {
+                    postError(callback, statusCode, "Ban user failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void unbanUser(String homeserver, String accessToken, String roomId, String userId, MatrixCallback<Boolean> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedRoom = URLEncoder.encode(roomId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/rooms/" + encodedRoom + "/unban");
+
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                body.put("user_id", userId);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                if (statusCode >= 200 && statusCode < 300) {
+                    postSuccess(callback, true);
+                } else {
+                    postError(callback, statusCode, "Unban user failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public static class PublicRoom {
+        public String roomId;
+        public String name;
+        public String topic;
+        public String canonicalAlias;
+        public int numJoinedMembers;
+        public String avatarUrl;
+    }
+
+    public void searchPublicRooms(String homeserver, String accessToken, String searchTerm, int limit, MatrixCallback<java.util.List<PublicRoom>> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                URL url = new URL(homeserver + "/_matrix/client/v3/publicRooms");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                if (!TextUtils.isEmpty(accessToken)) {
+                    conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                }
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                if (!TextUtils.isEmpty(searchTerm)) {
+                    JSONObject filter = new JSONObject();
+                    filter.put("generic_search_term", searchTerm);
+                    body.put("filter", filter);
+                }
+                body.put("limit", limit > 0 ? limit : 20);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    JSONArray chunk = json.optJSONArray("chunk");
+                    java.util.List<PublicRoom> rooms = new java.util.ArrayList<>();
+                    if (chunk != null) {
+                        for (int i = 0; i < chunk.length(); i++) {
+                            JSONObject r = chunk.optJSONObject(i);
+                            if (r != null) {
+                                PublicRoom pr = new PublicRoom();
+                                pr.roomId = r.optString("room_id");
+                                pr.name = r.optString("name", "");
+                                pr.topic = r.optString("topic", "");
+                                pr.canonicalAlias = r.optString("canonical_alias", "");
+                                pr.numJoinedMembers = r.optInt("num_joined_members", 0);
+                                pr.avatarUrl = r.optString("avatar_url", null);
+                                rooms.add(pr);
+                            }
+                        }
+                    }
+                    postSuccess(callback, rooms);
+                } else {
+                    postError(callback, statusCode, "Search public rooms failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                FileLog.e("MatrixClient.searchPublicRooms error", e);
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void sendMessageWithFormattedBody(String homeserver, String accessToken, String roomId, String plainText, String formattedHtml, String replyToEventId, String txnId, MatrixCallback<String> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedRoom = URLEncoder.encode(roomId, "UTF-8");
+                String encodedTxn = URLEncoder.encode(txnId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/rooms/" + encodedRoom + "/send/m.room.message/" + encodedTxn);
+
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("PUT");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                body.put("msgtype", "m.text");
+                body.put("body", plainText != null ? plainText : "");
+                if (!TextUtils.isEmpty(formattedHtml)) {
+                    body.put("format", "org.matrix.custom.html");
+                    body.put("formatted_body", formattedHtml);
+                }
+
+                if (!TextUtils.isEmpty(replyToEventId)) {
+                    JSONObject relatesTo = new JSONObject();
+                    JSONObject inReplyTo = new JSONObject();
+                    inReplyTo.put("event_id", replyToEventId);
+                    relatesTo.put("m.in_reply_to", inReplyTo);
+                    body.put("m.relates_to", relatesTo);
+                }
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    postSuccess(callback, json.optString("event_id", null));
+                } else {
+                    postError(callback, statusCode, "Send formatted message failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void sendLocationMessage(String homeserver, String accessToken, String roomId, double lat, double lon, String description, String txnId, MatrixCallback<String> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedRoom = URLEncoder.encode(roomId, "UTF-8");
+                String encodedTxn = URLEncoder.encode(txnId, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/rooms/" + encodedRoom + "/send/m.room.message/" + encodedTxn);
+
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("PUT");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+
+                JSONObject body = new JSONObject();
+                body.put("msgtype", "m.location");
+                body.put("geo_uri", "geo:" + lat + "," + lon);
+                body.put("body", !TextUtils.isEmpty(description) ? description : ("Location: " + lat + ", " + lon));
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    postSuccess(callback, json.optString("event_id", null));
+                } else {
+                    postError(callback, statusCode, "Send location failed: HTTP " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void logout(String homeserver, String accessToken, MatrixCallback<Boolean> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                URL url = new URL(homeserver + "/_matrix/client/v3/logout");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setDoOutput(true);
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write("{}".getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+                int statusCode = conn.getResponseCode();
+                postSuccess(callback, statusCode >= 200 && statusCode < 300);
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
     // ---------------- Helper Methods ----------------
 
     private String readStream(InputStream is) throws Exception {

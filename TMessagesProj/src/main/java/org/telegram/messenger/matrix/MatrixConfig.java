@@ -80,7 +80,15 @@ public class MatrixConfig {
         getPrefs(account).edit().clear().apply();
     }
 
+    public static void clear(int account) {
+        clearSession(account);
+    }
+
     public static String getHttpUrlForMxc(String homeserver, String mxcUrl) {
+        return getHttpThumbnailUrlForMxc(homeserver, mxcUrl, 160, 160);
+    }
+
+    public static String getHttpDownloadUrlForMxc(String homeserver, String mxcUrl) {
         if (TextUtils.isEmpty(mxcUrl) || !mxcUrl.startsWith("mxc://")) {
             return null;
         }
@@ -97,6 +105,26 @@ public class MatrixConfig {
         if (homeserver.endsWith("/")) {
             homeserver = homeserver.substring(0, homeserver.length() - 1);
         }
-        return homeserver + "/_matrix/media/v3/thumbnail/" + server + "/" + mediaId + "?width=160&height=160&method=crop";
+        return homeserver + "/_matrix/media/v3/download/" + server + "/" + mediaId;
+    }
+
+    public static String getHttpThumbnailUrlForMxc(String homeserver, String mxcUrl, int width, int height) {
+        if (TextUtils.isEmpty(mxcUrl) || !mxcUrl.startsWith("mxc://")) {
+            return null;
+        }
+        String path = mxcUrl.substring(6);
+        int slash = path.indexOf('/');
+        if (slash <= 0) {
+            return null;
+        }
+        String server = path.substring(0, slash);
+        String mediaId = path.substring(slash + 1);
+        if (TextUtils.isEmpty(homeserver)) {
+            homeserver = DEFAULT_HOMESERVER;
+        }
+        if (homeserver.endsWith("/")) {
+            homeserver = homeserver.substring(0, homeserver.length() - 1);
+        }
+        return homeserver + "/_matrix/media/v3/thumbnail/" + server + "/" + mediaId + "?width=" + width + "&height=" + height + "&method=scale";
     }
 }
