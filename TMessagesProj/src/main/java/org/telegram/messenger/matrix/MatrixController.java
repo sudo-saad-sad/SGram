@@ -228,7 +228,7 @@ public class MatrixController {
 
                             if (isOut) {
                                 msg.out = true;
-                                msg.flags |= TLRPC.MESSAGE_FLAG_OUT;
+                                msg.flags |= 2;
                             }
                             msg.send_state = 0; // sent
 
@@ -263,9 +263,12 @@ public class MatrixController {
             }
 
             if (!newDialogs.isEmpty()) {
-                for (TLRPC.Dialog d : newDialogs) {
-                    MessagesStorage.getInstance(currentAccount).putDialog(d, false);
-                }
+                TLRPC.TL_messages_dialogs dialogsRes = new TLRPC.TL_messages_dialogs();
+                dialogsRes.dialogs.addAll(newDialogs);
+                dialogsRes.chats.addAll(newChats);
+                dialogsRes.users.addAll(newUsers);
+                dialogsRes.messages.addAll(newMessages);
+                MessagesController.getInstance(currentAccount).processLoadedDialogs(dialogsRes, null, null, 0, 0, newDialogs.size(), 0, false, false, false);
             }
 
             AndroidUtilities.runOnUIThread(() -> {
@@ -420,7 +423,7 @@ public class MatrixController {
 
                         if (senderId.equals(myMatrixId)) {
                             msg.out = true;
-                            msg.flags |= TLRPC.MESSAGE_FLAG_OUT;
+                            msg.flags |= 2;
                         }
                         msg.send_state = 0;
                         messagesRes.messages.add(msg);

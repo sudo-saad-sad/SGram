@@ -156,7 +156,7 @@ public class MatrixLoginView extends SlideView {
 
         isLoggingIn = true;
         if (loginActivity != null) {
-            loginActivity.needShowProgress();
+            loginActivity.showProgress(true);
         }
 
         MatrixClient.getInstance().login(homeserver, username, password, new MatrixClient.MatrixCallback<MatrixClient.LoginResult>() {
@@ -164,7 +164,7 @@ public class MatrixLoginView extends SlideView {
             public void onSuccess(MatrixClient.LoginResult result) {
                 isLoggingIn = false;
                 if (loginActivity != null) {
-                    loginActivity.needHideProgress();
+                    loginActivity.showProgress(false);
                 }
 
                 // 1. Save session in MatrixConfig
@@ -196,7 +196,7 @@ public class MatrixLoginView extends SlideView {
             public void onError(int code, String message) {
                 isLoggingIn = false;
                 if (loginActivity != null) {
-                    loginActivity.needHideProgress();
+                    loginActivity.showProgress(false);
                 }
                 if (getContext() != null) {
                     new AlertDialog.Builder(getContext())

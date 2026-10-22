@@ -1467,6 +1467,14 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
         }
     }
 
+    public void showProgress(boolean show) {
+        if (show) {
+            needShowProgress(0);
+        } else {
+            needHideProgress(false);
+        }
+    }
+
     private void needShowProgress(int requestId) {
         needShowProgress(requestId, true);
     }
