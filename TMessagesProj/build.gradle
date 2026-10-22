@@ -217,9 +217,3 @@ def getProps(String propName) {
         return "";
     }
 }
-
-tasks.withType(JavaCompile) {
-    options.fork = true
-    options.forkOptions.memoryMaximumSize = '850m'
-    options.forkOptions.jvmArgs = ['-XX:+UseSerialGC']
-}
