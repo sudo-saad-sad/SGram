@@ -99,6 +99,7 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
     private int securitySectionRow;
     private int passwordRow;
     private int sessionsRow;
+    private int matrixRecoveryKeyRow;
     private int passcodeRow;
     private int autoDeleteMesages;
     private int sessionsDetailRow;
@@ -183,6 +184,24 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
             }
         });
         webSessionsActivityPreload.loadSessions(false);
+
+        if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+            org.telegram.messenger.matrix.MatrixKeyBackupManager.getInstance(currentAccount).checkBackupStatus(new org.telegram.messenger.matrix.MatrixClient.MatrixCallback<org.telegram.messenger.matrix.MatrixKeyBackupManager.BackupStatus>() {
+                @Override
+                public void onSuccess(org.telegram.messenger.matrix.MatrixKeyBackupManager.BackupStatus result) {
+                    if (listAdapter != null && matrixRecoveryKeyRow >= 0) {
+                        listAdapter.notifyItemChanged(matrixRecoveryKeyRow);
+                    }
+                }
+
+                @Override
+                public void onError(int code, String message) {
+                    if (listAdapter != null && matrixRecoveryKeyRow >= 0) {
+                        listAdapter.notifyItemChanged(matrixRecoveryKeyRow);
+                    }
+                }
+            });
+        }
 
         return true;
     }
@@ -281,6 +300,8 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
             } else if (position == sessionsRow) {
                 devicesActivityPreload.resetFragment();
                 presentFragment(devicesActivityPreload);
+            } else if (position == matrixRecoveryKeyRow) {
+                presentFragment(new MatrixRecoveryKeyActivity());
             } else if (position == webSessionsRow) {
                 webSessionsActivityPreload.resetFragment();
                 presentFragment(webSessionsActivityPreload);
@@ -660,6 +681,11 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
             }
         }
         sessionsRow = rowCount++;
+        if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+            matrixRecoveryKeyRow = rowCount++;
+        } else {
+            matrixRecoveryKeyRow = -1;
+        }
         sessionsDetailRow = rowCount++;
 
         privacySectionRow = rowCount++;
@@ -908,7 +934,7 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
         @Override
         public boolean isEnabled(RecyclerView.ViewHolder holder) {
             int position = holder.getAdapterPosition();
-            return position == passcodeRow || position == passwordRow || position == blockedRow || position == sessionsRow || position == secretWebpageRow || position == webSessionsRow ||
+            return position == passcodeRow || position == passwordRow || position == blockedRow || position == sessionsRow || position == matrixRecoveryKeyRow || position == secretWebpageRow || position == webSessionsRow ||
                     position == groupsRow && !getContactsController().getLoadingPrivacyInfo(ContactsController.PRIVACY_RULES_TYPE_INVITE) ||
                     position == lastSeenRow && !getContactsController().getLoadingPrivacyInfo(ContactsController.PRIVACY_RULES_TYPE_LASTSEEN) ||
                     position == callsRow && !getContactsController().getLoadingPrivacyInfo(ContactsController.PRIVACY_RULES_TYPE_CALLS) ||
@@ -1185,6 +1211,10 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
                         }
                         getMessagesController().lastKnownSessionsCount = devicesActivityPreload.getSessionsCount();
                         textCell2.setTextAndValueAndIcon(LocaleController.getString("SessionsTitle", R.string.SessionsTitle), count, true, R.drawable.msg2_devices, false);
+                    } else if (position == matrixRecoveryKeyRow) {
+                        boolean active = org.telegram.messenger.matrix.MatrixKeyBackupManager.getInstance(currentAccount).isBackupActive();
+                        String val = active ? "Active" : "Not Set Up";
+                        textCell2.setTextAndValueAndIcon("Matrix Recovery Key", val, true, R.drawable.msg2_secret, true);
                     } else if (position == emailLoginRow) {
                         CharSequence val = "";
                         if (currentPassword == null) {
@@ -1255,7 +1285,7 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
                 return 3;
             } else if (position == botsAndWebsitesShadowRow) {
                 return 4;
-            } else if (position == autoDeleteMesages || position == sessionsRow || position == emailLoginRow || position == passwordRow || position == passcodeRow || position == blockedRow) {
+            } else if (position == autoDeleteMesages || position == sessionsRow || position == matrixRecoveryKeyRow || position == emailLoginRow || position == passwordRow || position == passcodeRow || position == blockedRow) {
                 return 5;
             }
             return 0;

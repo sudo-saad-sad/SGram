@@ -1908,6 +1908,146 @@ public class MatrixClient {
         });
     }
 
+    // ---------------- Key Backup & Recovery Key (MSC1219 / MSC2474) ----------------
+
+    public void getKeyBackupVersion(String homeserver, String accessToken, MatrixCallback<JSONObject> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                URL url = new URL(homeserver + "/_matrix/client/v3/room_keys/version");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Accept", "application/json");
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    postSuccess(callback, json);
+                } else {
+                    postError(callback, statusCode, "Get key backup version failed: " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void createKeyBackupVersion(String homeserver, String accessToken, JSONObject authData, MatrixCallback<String> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                URL url = new URL(homeserver + "/_matrix/client/v3/room_keys/version");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setDoOutput(true);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(authData.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    postSuccess(callback, json.optString("version", "1"));
+                } else {
+                    postError(callback, statusCode, "Create key backup version failed: " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void getKeyBackupKeys(String homeserver, String accessToken, String version, MatrixCallback<JSONObject> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String query = !TextUtils.isEmpty(version) ? "?version=" + URLEncoder.encode(version, "UTF-8") : "";
+                URL url = new URL(homeserver + "/_matrix/client/v3/room_keys/keys" + query);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(20000);
+                conn.setReadTimeout(20000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Accept", "application/json");
+
+                int statusCode = conn.getResponseCode();
+                InputStream is = (statusCode >= 200 && statusCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                String responseStr = readStream(is);
+
+                if (statusCode >= 200 && statusCode < 300) {
+                    JSONObject json = new JSONObject(responseStr);
+                    postSuccess(callback, json);
+                } else {
+                    postError(callback, statusCode, "Get backup keys failed: " + statusCode);
+                }
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void putRoomKeyBackup(String homeserver, String accessToken, String version, String roomId, String sessionId, JSONObject sessionData, MatrixCallback<Boolean> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedRoom = URLEncoder.encode(roomId, "UTF-8");
+                String encodedSession = URLEncoder.encode(sessionId, "UTF-8");
+                String query = !TextUtils.isEmpty(version) ? "?version=" + URLEncoder.encode(version, "UTF-8") : "";
+                URL url = new URL(homeserver + "/_matrix/client/v3/room_keys/keys/" + encodedRoom + "/" + encodedSession + query);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("PUT");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setDoOutput(true);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(sessionData.toString().getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+
+                int statusCode = conn.getResponseCode();
+                postSuccess(callback, statusCode >= 200 && statusCode < 300);
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
+    public void deleteKeyBackupVersion(String homeserver, String accessToken, String version, MatrixCallback<Boolean> callback) {
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                String encodedVersion = URLEncoder.encode(version, "UTF-8");
+                URL url = new URL(homeserver + "/_matrix/client/v3/room_keys/version/" + encodedVersion);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("DELETE");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setRequestProperty("Accept", "application/json");
+
+                int statusCode = conn.getResponseCode();
+                postSuccess(callback, statusCode >= 200 && statusCode < 300);
+            } catch (Exception e) {
+                postError(callback, -1, e.getMessage());
+            }
+        });
+    }
+
     // ---------------- Helper Methods ----------------
 
     private String readStream(InputStream is) throws Exception {

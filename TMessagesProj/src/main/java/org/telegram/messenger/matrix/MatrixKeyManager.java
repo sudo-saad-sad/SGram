@@ -240,9 +240,35 @@ public class MatrixKeyManager {
         return val;
     }
 
+    public void signJson(JSONObject object) {
+        try {
+            String userId = MatrixConfig.getUserId(currentAccount);
+            String deviceId = MatrixConfig.getDeviceId(currentAccount);
+            String canonical = canonicalizeJson(object);
+            String sig = Base64.encodeToString(ed25519Sign(getEd25519PrivateKey(), canonical.getBytes(StandardCharsets.UTF_8)), Base64.NO_WRAP | Base64.NO_PADDING);
+            JSONObject signatures = object.optJSONObject("signatures");
+            if (signatures == null) {
+                signatures = new JSONObject();
+                object.put("signatures", signatures);
+            }
+            JSONObject userSigs = signatures.optJSONObject(userId);
+            if (userSigs == null) {
+                userSigs = new JSONObject();
+                signatures.put(userId, userSigs);
+            }
+            userSigs.put("ed25519:" + deviceId, sig);
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
+    }
+
     // ---------------- Cryptographic Math (RFC 7748 X25519 & RFC 8032 Ed25519) ----------------
 
-    private static byte[] x25519Public(byte[] privateKey) {
+    public static byte[] x25519Public(byte[] privateKey) {
+        return x25519(privateKey, null);
+    }
+
+    public static byte[] x25519(byte[] privateKey, byte[] uPoint) {
         byte[] k = privateKey.clone();
         k[0] &= 248;
         k[31] &= 127;
@@ -253,10 +279,20 @@ public class MatrixKeyManager {
             kNum = kNum.or(BigInteger.valueOf(k[i] & 0xFF).shiftLeft(i * 8));
         }
 
-        BigInteger x_1 = BigInteger.valueOf(9);
+        BigInteger x_1;
+        if (uPoint != null && uPoint.length == 32) {
+            BigInteger uVal = BigInteger.ZERO;
+            for (int i = 0; i < 32; i++) {
+                uVal = uVal.or(BigInteger.valueOf(uPoint[i] & 0xFF).shiftLeft(i * 8));
+            }
+            x_1 = uVal.mod(P);
+        } else {
+            x_1 = BigInteger.valueOf(9);
+        }
+
         BigInteger x_2 = BigInteger.ONE;
         BigInteger z_2 = BigInteger.ZERO;
-        BigInteger x_3 = BigInteger.valueOf(9);
+        BigInteger x_3 = x_1;
         BigInteger z_3 = BigInteger.ONE;
         int swap = 0;
 
