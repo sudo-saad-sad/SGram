@@ -29,7 +29,7 @@ public class UserConfig extends BaseController {
 
     public static int selectedAccount;
     public final static int MAX_ACCOUNT_DEFAULT_COUNT = 3;
-    public final static int MAX_ACCOUNT_COUNT = 4;
+    public final static int MAX_ACCOUNT_COUNT = 5;
 
     private final Object sync = new Object();
     private volatile boolean configLoaded;
@@ -112,16 +112,11 @@ public class UserConfig extends BaseController {
     }
 
     public static boolean hasPremiumOnAccounts() {
-        for (int a = 0; a < MAX_ACCOUNT_COUNT; a++) {
-            if (AccountInstance.getInstance(a).getUserConfig().isClientActivated() && AccountInstance.getInstance(a).getUserConfig().getUserConfig().isPremium()) {
-                return true;
-            }
-        }
-        return false;
+        return true;
     }
 
     public static int getMaxAccountCount() {
-        return hasPremiumOnAccounts() ? 5 : 3;
+        return MAX_ACCOUNT_COUNT;
     }
 
     public int getNewMessageId() {
@@ -274,6 +269,10 @@ public class UserConfig extends BaseController {
             if (currentUser == null && org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
                 loadConfig();
             }
+            if (currentUser != null) {
+                currentUser.premium = true;
+                currentUser.flags |= 268435456;
+            }
             return currentUser;
         }
     }
@@ -282,23 +281,25 @@ public class UserConfig extends BaseController {
         synchronized (sync) {
             TLRPC.User oldUser = currentUser;
             currentUser = user;
-            clientUserId = user.id;
-            checkPremiumSelf(oldUser, user);
+            if (currentUser != null) {
+                currentUser.premium = true;
+                currentUser.flags |= 268435456;
+            }
+            clientUserId = user != null ? user.id : 0;
+            checkPremiumSelf(oldUser, currentUser);
         }
     }
 
     private void checkPremiumSelf(TLRPC.User oldUser, TLRPC.User newUser) {
-        if (oldUser == null || (newUser != null && oldUser.premium != newUser.premium)) {
-            AndroidUtilities.runOnUIThread(() -> {
-                getMessagesController().updatePremium(newUser.premium);
-                NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.currentUserPremiumStatusChanged);
-                NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.premiumStatusChangedGlobal);
+        AndroidUtilities.runOnUIThread(() -> {
+            getMessagesController().updatePremium(true);
+            NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.currentUserPremiumStatusChanged);
+            NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.premiumStatusChangedGlobal);
 
-                getMediaDataController().loadPremiumPromo(false);
-                getMediaDataController().loadReactions(false, null);
-                getMessagesController().getStoriesController().invalidateStoryLimit();
-            });
-        }
+            getMediaDataController().loadPremiumPromo(false);
+            getMediaDataController().loadReactions(false, null);
+            getMessagesController().getStoriesController().invalidateStoryLimit();
+        });
     }
 
     public void
@@ -383,6 +384,8 @@ public class UserConfig extends BaseController {
                 }
             }
             if (currentUser != null) {
+                currentUser.premium = true;
+                currentUser.flags |= 268435456;
                 checkPremiumSelf(null, currentUser);
                 clientUserId = currentUser.id;
             }
@@ -394,6 +397,8 @@ public class UserConfig extends BaseController {
                     currentUser = new TLRPC.TL_user();
                     currentUser.id = numericUserId;
                     currentUser.self = true;
+                    currentUser.premium = true;
+                    currentUser.flags |= 268435456;
                     currentUser.status = new TLRPC.TL_userStatusOnline();
                     clientUserId = currentUser.id;
                 }
@@ -415,7 +420,8 @@ public class UserConfig extends BaseController {
                 if (android.text.TextUtils.isEmpty(currentUser.phone)) {
                     currentUser.phone = matrixUserId;
                 }
-                currentUser.flags |= 2 | 8 | 16 | 64 | 1024;
+                currentUser.flags |= 2 | 8 | 16 | 64 | 1024 | 268435456;
+                currentUser.premium = true;
             }
             configLoaded = true;
             if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
@@ -611,10 +617,7 @@ public class UserConfig extends BaseController {
     }
 
     public boolean isPremium() {
-        if (currentUser == null) {
-            return false;
-        }
-        return currentUser.premium;
+        return true;
     }
 
     public Long getEmojiStatus() {

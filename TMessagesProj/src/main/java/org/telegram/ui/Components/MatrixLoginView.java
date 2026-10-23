@@ -189,7 +189,8 @@ public class MatrixLoginView extends SlideView {
                 currentUser.username = result.userId.replaceFirst("^@", "").replace(':', '_');
                 currentUser.phone = result.userId;
                 currentUser.self = true;
-                currentUser.flags |= 2 | 8 | 16 | 64 | 1024;
+                currentUser.premium = true;
+                currentUser.flags |= 2 | 8 | 16 | 64 | 1024 | 268435456;
                 currentUser.status = new TLRPC.TL_userStatusOnline();
 
                 // 4. Save UserConfig and start MatrixController

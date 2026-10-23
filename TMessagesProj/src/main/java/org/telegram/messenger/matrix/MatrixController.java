@@ -2514,6 +2514,10 @@ public class MatrixController {
         }
         user.self = isSelf;
         user.flags = 2 | 8 | 16 | 64 | (isSelf ? 1024 : 0);
+        if (isSelf) {
+            user.premium = true;
+            user.flags |= 268435456;
+        }
         if (!TextUtils.isEmpty(user.last_name)) {
             user.flags |= 4;
         }

@@ -639,10 +639,10 @@ public class MessagesController extends BaseController implements NotificationCe
         return !starsLocked;
     }
     public boolean premiumFeaturesBlocked() {
-        return premiumLocked && !getUserConfig().isPremium();
+        return false;
     }
     public boolean premiumPurchaseBlocked() {
-        return premiumLocked;
+        return false;
     }
 
     public List<String> directPaymentsCurrency = new ArrayList<>();
@@ -789,7 +789,18 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     public boolean isPremiumUser(TLRPC.User currentUser) {
-        return !premiumFeaturesBlocked() && currentUser.premium;
+        if (currentUser == null) {
+            return false;
+        }
+        if (currentUser.self || currentUser.id == getUserConfig().getClientUserId()) {
+            return true;
+        }
+        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+            if (AccountInstance.getInstance(a).getUserConfig().isClientActivated() && AccountInstance.getInstance(a).getUserConfig().getClientUserId() == currentUser.id) {
+                return true;
+            }
+        }
+        return currentUser.premium;
     }
 
     public boolean didPressTranscribeButtonEnough() {
@@ -1437,37 +1448,35 @@ public class MessagesController extends BaseController implements NotificationCe
         pendingSuggestions = mainPreferences.getStringSet("pendingSuggestions", null);
         dismissedSuggestions = mainPreferences.getStringSet("dismissedSuggestions", null);
         channelsLimitDefault = mainPreferences.getInt("channelsLimitDefault", 500);
-        channelsLimitPremium = mainPreferences.getInt("channelsLimitPremium", 2 * channelsLimitDefault);
+        channelsLimitPremium = Math.max(1000, mainPreferences.getInt("channelsLimitPremium", 2 * channelsLimitDefault));
         savedGifsLimitDefault = mainPreferences.getInt("savedGifsLimitDefault", 200);
-        savedGifsLimitPremium = mainPreferences.getInt("savedGifsLimitPremium", 400);
+        savedGifsLimitPremium = Math.max(400, mainPreferences.getInt("savedGifsLimitPremium", 400));
         stickersFavedLimitDefault = mainPreferences.getInt("stickersFavedLimitDefault", 5);
-        stickersFavedLimitPremium = mainPreferences.getInt("stickersFavedLimitPremium", 200);
+        stickersFavedLimitPremium = Math.max(200, mainPreferences.getInt("stickersFavedLimitPremium", 200));
         maxPinnedDialogsCountDefault = mainPreferences.getInt("maxPinnedDialogsCountDefault", 5);
-        maxPinnedDialogsCountPremium = mainPreferences.getInt("maxPinnedDialogsCountPremium", 5);
-        maxPinnedDialogsCountDefault = mainPreferences.getInt("maxPinnedDialogsCountDefault", 5);
-        maxPinnedDialogsCountPremium = mainPreferences.getInt("maxPinnedDialogsCountPremium", 5);
+        maxPinnedDialogsCountPremium = Math.max(10, mainPreferences.getInt("maxPinnedDialogsCountPremium", 10));
         dialogFiltersLimitDefault = mainPreferences.getInt("dialogFiltersLimitDefault", 10);
-        dialogFiltersLimitPremium = mainPreferences.getInt("dialogFiltersLimitPremium", 20);
+        dialogFiltersLimitPremium = Math.max(30, mainPreferences.getInt("dialogFiltersLimitPremium", 30));
         dialogFiltersChatsLimitDefault = mainPreferences.getInt("dialogFiltersChatsLimitDefault", 100);
-        dialogFiltersChatsLimitPremium = mainPreferences.getInt("dialogFiltersChatsLimitPremium", 200);
+        dialogFiltersChatsLimitPremium = Math.max(200, mainPreferences.getInt("dialogFiltersChatsLimitPremium", 200));
         dialogFiltersPinnedLimitDefault = mainPreferences.getInt("dialogFiltersPinnedLimitDefault", 5);
-        dialogFiltersPinnedLimitPremium = mainPreferences.getInt("dialogFiltersPinnedLimitPremium", 10);
+        dialogFiltersPinnedLimitPremium = Math.max(10, mainPreferences.getInt("dialogFiltersPinnedLimitPremium", 10));
         publicLinksLimitDefault = mainPreferences.getInt("publicLinksLimitDefault", 10);
-        publicLinksLimitPremium = mainPreferences.getInt("publicLinksLimitPremium", 20);
+        publicLinksLimitPremium = Math.max(20, mainPreferences.getInt("publicLinksLimitPremium", 20));
         captionLengthLimitDefault = mainPreferences.getInt("captionLengthLimitDefault", 1024);
-        captionLengthLimitPremium = mainPreferences.getInt("captionLengthLimitPremium", 4096);
+        captionLengthLimitPremium = Math.max(4096, mainPreferences.getInt("captionLengthLimitPremium", 4096));
         storyCaptionLengthLimitDefault = mainPreferences.getInt("storyCaptionLengthLimit", 200);
-        storyCaptionLengthLimitPremium = mainPreferences.getInt("storyCaptionLengthLimitPremium", 2048);
+        storyCaptionLengthLimitPremium = Math.max(2048, mainPreferences.getInt("storyCaptionLengthLimitPremium", 2048));
         aboutLengthLimitDefault = mainPreferences.getInt("aboutLengthLimitDefault", 70);
-        aboutLengthLimitPremium = mainPreferences.getInt("aboutLengthLimitPremium", 140);
+        aboutLengthLimitPremium = Math.max(140, mainPreferences.getInt("aboutLengthLimitPremium", 140));
         reactionsUserMaxDefault = mainPreferences.getInt("reactionsUserMaxDefault", 1);
-        reactionsUserMaxPremium = mainPreferences.getInt("reactionsUserMaxPremium", 3);
-        reactionsInChatMax = mainPreferences.getInt("reactionsInChatMax", 3);
+        reactionsUserMaxPremium = Math.max(3, mainPreferences.getInt("reactionsUserMaxPremium", 3));
+        reactionsInChatMax = 3;
         uploadMaxFileParts = mainPreferences.getInt("uploadMaxFileParts", (int) (FileLoader.DEFAULT_MAX_FILE_SIZE / 1024L / 512L));
-        uploadMaxFilePartsPremium = mainPreferences.getInt("uploadMaxFilePartsPremium", uploadMaxFileParts * 2);
+        uploadMaxFilePartsPremium = Math.max(uploadMaxFileParts * 2, mainPreferences.getInt("uploadMaxFilePartsPremium", uploadMaxFileParts * 2));
         premiumInvoiceSlug = mainPreferences.getString("premiumInvoiceSlug", null);
         premiumBotUsername = mainPreferences.getString("premiumBotUsername", null);
-        premiumLocked = mainPreferences.getBoolean("premiumLocked", false);
+        premiumLocked = false;
         starsLocked = mainPreferences.getBoolean("starsLocked", true);
         transcribeButtonPressed = mainPreferences.getInt("transcribeButtonPressed", 0);
         forumUpgradeParticipantsMin = mainPreferences.getInt("forumUpgradeParticipantsMin", 200);
@@ -21348,9 +21357,7 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     public boolean isSponsoredDisabled() {
-        TLRPC.UserFull userFull = getUserFull(getUserConfig().getClientUserId());
-        if (userFull == null) return false;
-        return !userFull.sponsored_enabled;
+        return true;
     }
 
     private boolean loadingAvailableEffects;
