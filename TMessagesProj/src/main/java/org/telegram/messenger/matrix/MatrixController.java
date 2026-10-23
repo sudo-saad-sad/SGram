@@ -41,6 +41,7 @@ public class MatrixController {
     private final ConcurrentHashMap<Long, TreeMap<Integer, byte[]>> filePartBuffers = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, String> mediaIdToUrlMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, String> deviceHashToIdMap = new ConcurrentHashMap<>();
+    private volatile TLRPC.messages_Dialogs cachedDialogs;
 
     public static MatrixController getInstance(int account) {
         if (account < 0 || account >= instances.length) {
@@ -607,6 +608,7 @@ public class MatrixController {
                 dialogsRes.chats.addAll(newChats);
                 dialogsRes.users.addAll(newUsers);
                 dialogsRes.messages.addAll(newMessages);
+                cachedDialogs = dialogsRes;
                 MessagesStorage.getInstance(currentAccount).putDialogs(dialogsRes, 0);
                 MessagesController.getInstance(currentAccount).processLoadedDialogs(dialogsRes, null, null, 0, 0, newDialogs.size(), 0, false, false, false);
             }
@@ -1780,9 +1782,9 @@ public class MatrixController {
     private void handleGetDialogs(TLRPC.TL_messages_getDialogs req, RequestDelegate onComplete) {
         if (onComplete != null) {
             AndroidUtilities.runOnUIThread(() -> {
-                TLRPC.TL_messages_dialogs dialogsRes = new TLRPC.TL_messages_dialogs();
                 ArrayList<TLRPC.Dialog> all = MessagesController.getInstance(currentAccount).getAllDialogs();
                 if (all != null && !all.isEmpty()) {
+                    TLRPC.TL_messages_dialogs dialogsRes = new TLRPC.TL_messages_dialogs();
                     dialogsRes.dialogs.addAll(all);
                     for (TLRPC.Dialog d : all) {
                         if (d.id > 0) {
@@ -1797,12 +1799,16 @@ public class MatrixController {
                             }
                         }
                     }
+                    cachedDialogs = dialogsRes;
                     onComplete.run(dialogsRes, null);
+                } else if (cachedDialogs != null && !cachedDialogs.dialogs.isEmpty()) {
+                    onComplete.run(cachedDialogs, null);
                 } else {
-                    MessagesStorage.getInstance(currentAccount).getStorageQueue().postRunnable(() -> {
-                        MessagesStorage.getInstance(currentAccount).getDialogs(req.folder_id, 0, req.limit > 0 ? req.limit : 100, false);
-                    });
-                    onComplete.run(dialogsRes, null);
+                    TLRPC.TL_error err = new TLRPC.TL_error();
+                    err.code = 500;
+                    err.text = "SYNC_PENDING";
+                    onComplete.run(null, err);
+                    scheduleSync(0);
                 }
             });
         }

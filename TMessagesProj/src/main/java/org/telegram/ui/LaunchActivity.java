@@ -351,7 +351,22 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         instance = this;
         ApplicationLoader.postInitApplication();
         AndroidUtilities.checkDisplaySize(this, getResources().getConfiguration());
-        currentAccount = UserConfig.selectedAccount;
+        int activeMatrixAccount = -1;
+        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+            if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(a)) {
+                if (activeMatrixAccount == -1 || a == UserConfig.selectedAccount) {
+                    activeMatrixAccount = a;
+                }
+            }
+        }
+        if (activeMatrixAccount != -1) {
+            currentAccount = activeMatrixAccount;
+            UserConfig.selectedAccount = activeMatrixAccount;
+            UserConfig.getInstance(currentAccount).loadConfig();
+            org.telegram.messenger.matrix.MatrixController.getInstance(currentAccount).start();
+        } else {
+            currentAccount = UserConfig.selectedAccount;
+        }
         if (UserConfig.getInstance(currentAccount).isClientActivated() && org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
             org.telegram.messenger.matrix.MatrixController.getInstance(currentAccount).start();
         }
@@ -6395,6 +6410,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     @SuppressWarnings("unchecked")
     public void didReceivedNotification(int id, final int account, Object... args) {
         if (id == NotificationCenter.appDidLogout) {
+            if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(account)) {
+                FileLog.d("LaunchActivity: appDidLogout ignored for active Matrix account " + account);
+                return;
+            }
             switchToAvailableAccountOrLogout();
         } else if (id == NotificationCenter.openBoostForUsersDialog) {
             long dialogId = (long) args[0];

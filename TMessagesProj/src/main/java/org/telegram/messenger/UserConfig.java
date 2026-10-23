@@ -134,16 +134,18 @@ public class UserConfig extends BaseController {
     }
 
     public void saveConfig(boolean withFile) {
-        NotificationCenter.getInstance(currentAccount).doOnIdle(() -> {
+        Runnable saveRunnable = () -> {
             if (!configLoaded) {
                 return;
             }
             synchronized (sync) {
                 try {
                     SharedPreferences.Editor editor = getPreferences().edit();
-                    if (currentAccount == 0) {
-                        editor.putInt("selectedAccount", selectedAccount);
-                    }
+                    editor.putInt("selectedAccount", selectedAccount);
+                    try {
+                        ApplicationLoader.applicationContext.getSharedPreferences("userconfing", Context.MODE_PRIVATE)
+                                .edit().putInt("selectedAccount", selectedAccount).commit();
+                    } catch (Exception ignore) {}
                     editor.putBoolean("registeredForPush", registeredForPush);
                     editor.putInt("lastSendMessageId", lastSendMessageId);
                     editor.putInt("contactsSavedCount", contactsSavedCount);
@@ -214,16 +216,26 @@ public class UserConfig extends BaseController {
                             editor.putString("user", string);
                             data.cleanup();
                         }
-                    } else {
+                    } else if (!org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
                         editor.remove("user");
                     }
 
-                    editor.commit();
+                    if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+                        editor.commit();
+                    } else {
+                        editor.apply();
+                    }
                 } catch (Exception e) {
                     FileLog.e(e);
                 }
             }
-        });
+        };
+
+        if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+            saveRunnable.run();
+        } else {
+            NotificationCenter.getInstance(currentAccount).doOnIdle(saveRunnable);
+        }
     }
 
     public static boolean isValidAccount(int num) {
@@ -232,24 +244,36 @@ public class UserConfig extends BaseController {
 
     public boolean isClientActivated() {
         synchronized (sync) {
+            if (currentUser == null && org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+                loadConfig();
+            }
             return currentUser != null;
         }
     }
 
     public long getClientUserId() {
         synchronized (sync) {
+            if (currentUser == null && org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+                loadConfig();
+            }
             return currentUser != null ? currentUser.id : 0;
         }
     }
 
     public String getClientPhone() {
         synchronized (sync) {
+            if (currentUser == null && org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+                loadConfig();
+            }
             return currentUser != null && currentUser.phone != null ? currentUser.phone : "";
         }
     }
 
     public TLRPC.User getCurrentUser() {
         synchronized (sync) {
+            if (currentUser == null && org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+                loadConfig();
+            }
             return currentUser;
         }
     }
@@ -480,6 +504,10 @@ public class UserConfig extends BaseController {
     }
 
     public void clearConfig() {
+        if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+            FileLog.d("UserConfig.clearConfig ignored for active Matrix account " + currentAccount);
+            return;
+        }
         getPreferences().edit().clear().apply();
 
         sharingMyLocationUntil = 0;

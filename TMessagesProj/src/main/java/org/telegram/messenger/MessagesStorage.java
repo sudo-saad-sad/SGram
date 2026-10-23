@@ -808,6 +808,10 @@ public class MessagesStorage extends BaseController {
     }
 
     public void cleanup(boolean isLogin) {
+        if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount) && !isLogin) {
+            FileLog.d("MessagesStorage.cleanup ignored for active Matrix account " + currentAccount);
+            return;
+        }
         storageQueue.postRunnable(() -> {
             cleanupInternal(true);
             openDatabase(1);
@@ -2100,6 +2104,10 @@ public class MessagesStorage extends BaseController {
     }
 
     public void fullReset() {
+        if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+            FileLog.d("MessagesStorage.fullReset ignored for active Matrix account " + currentAccount);
+            return;
+        }
         storageQueue.postRunnable(() -> {
             cleanupInternal(true);
             clearLoadingDialogsOffsets();

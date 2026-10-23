@@ -263,7 +263,8 @@ public class ConnectionsManager extends BaseController {
         if (getUserConfig().getCurrentUser() != null) {
             userPremium = getUserConfig().getCurrentUser().premium;
         }
-        init(SharedConfig.buildVersion(), TLRPC.LAYER, BuildVars.APP_ID, deviceModel, systemVersion, appVersion, langCode, systemLangCode, configPath, FileLog.getNetworkLogPath(), pushString, fingerprint, timezoneOffset, getUserConfig().getClientUserId(), userPremium, enablePushConnection);
+        long tgUserId = org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount) ? 0 : getUserConfig().getClientUserId();
+        init(SharedConfig.buildVersion(), TLRPC.LAYER, BuildVars.APP_ID, deviceModel, systemVersion, appVersion, langCode, systemLangCode, configPath, FileLog.getNetworkLogPath(), pushString, fingerprint, timezoneOffset, tgUserId, userPremium, enablePushConnection);
     }
 
     private String getRegId() {
@@ -349,6 +350,11 @@ public class ConnectionsManager extends BaseController {
             if (org.telegram.messenger.matrix.MatrixController.getInstance(currentAccount).handleRequest(object, onComplete)) {
                 return;
             }
+            FileLog.d("Unhandled Matrix request suppressed from MTProto: " + (object != null ? object.getClass().getSimpleName() : "null"));
+            if (onComplete != null) {
+                onComplete.run(null, null);
+            }
+            return;
         }
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d("send request " + object + " with token = " + requestToken);
@@ -563,6 +569,10 @@ public class ConnectionsManager extends BaseController {
     }
 
     public void setUserId(long id) {
+        if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+            FileLog.d("ConnectionsManager.setUserId ignored for active Matrix account " + currentAccount);
+            return;
+        }
         native_setUserId(currentAccount, id);
     }
 
@@ -659,6 +669,9 @@ public class ConnectionsManager extends BaseController {
     }
 
     public void updateDcSettings() {
+        if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+            return;
+        }
         native_updateDcSettings(currentAccount);
     }
 
@@ -762,6 +775,10 @@ public class ConnectionsManager extends BaseController {
     }
 
     public static void onLogout(final int currentAccount) {
+        if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+            FileLog.d("ConnectionsManager.onLogout ignored for active Matrix account " + currentAccount);
+            return;
+        }
         AndroidUtilities.runOnUIThread(() -> {
             AccountInstance accountInstance = AccountInstance.getInstance(currentAccount);
             if (accountInstance.getUserConfig().getClientUserId() != 0) {

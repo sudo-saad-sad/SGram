@@ -1658,9 +1658,18 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
     }
 
     public void onMatrixAuthSuccess(TLRPC.User user) {
-        TLRPC.TL_auth_authorization auth = new TLRPC.TL_auth_authorization();
-        auth.user = user;
-        onAuthSuccess(auth, false);
+        UserConfig.selectedAccount = currentAccount;
+        UserConfig.getInstance(currentAccount).setCurrentUser(user);
+        UserConfig.getInstance(currentAccount).saveConfig(true);
+
+        ArrayList<TLRPC.User> users = new ArrayList<>();
+        users.add(user);
+        MessagesStorage.getInstance(currentAccount).putUsersAndChats(users, null, true, true);
+        MessagesController.getInstance(currentAccount).putUser(user, false);
+
+        org.telegram.messenger.matrix.MatrixController.getInstance(currentAccount).start();
+
+        needFinishActivity(false, false, 0);
     }
 
     private void onAuthSuccess(TLRPC.TL_auth_authorization res) {

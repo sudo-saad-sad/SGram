@@ -213,6 +213,9 @@ public class ApplicationLoader extends Application {
                 MessagesController.getInstance(a).putUser(user, true);
                 SendMessagesHelper.getInstance(a).checkUnsentMessages();
             }
+            if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(a)) {
+                org.telegram.messenger.matrix.MatrixController.getInstance(a).start();
+            }
         }
 
         ApplicationLoader app = (ApplicationLoader) ApplicationLoader.applicationContext;

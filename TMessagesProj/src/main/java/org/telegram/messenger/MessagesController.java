@@ -14127,6 +14127,15 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     public void performLogout(int type) {
+        if (org.telegram.messenger.matrix.MatrixConfig.isMatrixActive(currentAccount)) {
+            if (type == 0) {
+                FileLog.d("MessagesController.performLogout(0) ignored for active Matrix account " + currentAccount);
+                return;
+            } else {
+                org.telegram.messenger.matrix.MatrixController.getInstance(currentAccount).stop();
+                org.telegram.messenger.matrix.MatrixConfig.clear(currentAccount);
+            }
+        }
         if (type == 1) {
             unregistedPush();
             TLRPC.TL_auth_logOut req = new TLRPC.TL_auth_logOut();
